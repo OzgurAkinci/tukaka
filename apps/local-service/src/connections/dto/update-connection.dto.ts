@@ -1,4 +1,5 @@
 
+import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
@@ -8,7 +9,10 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+import { ConnectionOptionsDto } from './connection-options.dto';
 
 import type { SslMode } from './create-connection.dto';
 
@@ -52,4 +56,9 @@ export class UpdateConnectionDto {
     'verify-full',
   ])
   sslMode?: SslMode;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ConnectionOptionsDto)
+  options?: ConnectionOptionsDto;
 }

@@ -11,6 +11,8 @@ declare global {
       sessionToken: string | null;
       /** Local service adresi (ör. http://127.0.0.1:53124); yoksa varsayılan kullanılır. */
       serviceUrl: string | null;
+      /** Yerel dosya seçici; vazgeçilirse null. */
+      selectFile?: (kind: 'sqlite' | 'sqlite-new' | 'ssh-key') => Promise<string | null>;
     };
   }
 }

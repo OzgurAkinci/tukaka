@@ -8,7 +8,29 @@
 // Bağlantılar
 // ---------------------------------------------------------------------------
 
-export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite';
+export type DatabaseType =
+  | 'postgresql'
+  | 'mysql'
+  | 'mariadb'
+  | 'sqlite'
+  | 'mssql'
+  | 'clickhouse';
+
+/** SSH tüneli ayarları (bağlantının `options_json` alanında saklanır). */
+export interface SshTunnelConfig {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  authMethod: 'password' | 'privateKey';
+  /** `privateKey` yönteminde anahtar dosyasının yolu. */
+  privateKeyPath?: string;
+}
+
+/** Bağlantıya özgü ek ayarlar (`options_json`). */
+export interface ConnectionOptions {
+  ssh?: SshTunnelConfig;
+}
 
 export type SslMode =
   | 'disable'
@@ -41,6 +63,14 @@ export interface CreateConnectionPayload {
   port?: number;
   username?: string;
   sslMode?: SslMode;
+  options?: ConnectionOptions;
+}
+
+export interface SetCredentialPayload {
+  /** Veritabanı şifresi. */
+  password?: string;
+  /** SSH şifresi ya da özel anahtar parolası. */
+  sshSecret?: string;
 }
 
 export type UpdateConnectionPayload = Partial<
@@ -248,3 +278,129 @@ export interface CreateSavedQueryPayload {
 }
 
 export type UpdateSavedQueryPayload = Partial<CreateSavedQueryPayload>;
+
+// ---------------------------------------------------------------------------
+// Tablo ayrıntıları, rutinler, DDL
+// ---------------------------------------------------------------------------
+
+export interface DatabaseIndex {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+}
+
+export interface DatabaseForeignKey {
+  name: string;
+  table: string;
+  columns: string[];
+  referencedSchema: string;
+  referencedTable: string;
+  referencedColumns: string[];
+}
+
+export interface TableDetailsResponse {
+  success: boolean;
+  connectionId: string;
+  schema: string;
+  table: string;
+  indexes: DatabaseIndex[];
+  foreignKeys: DatabaseForeignKey[];
+  ddl: string | null;
+}
+
+export interface DatabaseRoutine {
+  name: string;
+  schema: string;
+  type: 'function' | 'procedure';
+  /** Aşırı yüklenmiş fonksiyonları ayırt etmek için kimlik (ör. PG oid). */
+  id: string;
+  arguments: string | null;
+  returnType: string | null;
+}
+
+export interface RoutinesResponse {
+  success: boolean;
+  connectionId: string;
+  schema: string;
+  routines: DatabaseRoutine[];
+}
+
+export interface RoutineDefinitionResponse {
+  success: boolean;
+  connectionId: string;
+  definition: string;
+}
+
+// ---------------------------------------------------------------------------
+// Satır düzenleme
+// ---------------------------------------------------------------------------
+
+export type RowChange =
+  | { type: 'insert'; values: Record<string, unknown> }
+  | {
+      type: 'update';
+      /** Birincil anahtar kolonları ve satırın orijinal değerleri. */
+      key: Record<string, unknown>;
+      values: Record<string, unknown>;
+    }
+  | { type: 'delete'; key: Record<string, unknown> };
+
+export interface ApplyChangesPayload {
+  changes: RowChange[];
+  /** true ise SQL yalnızca üretilir, çalıştırılmaz (önizleme). */
+  dryRun?: boolean;
+}
+
+export interface ApplyChangesResponse {
+  success: boolean;
+  /** Önizleme için parametreleri yerleştirilmiş SQL ifadeleri. */
+  statements: string[];
+  /** Çalıştırıldıysa ifade başına etkilenen satır sayısı. */
+  affectedRows: number[] | null;
+}
+
+// ---------------------------------------------------------------------------
+// EXPLAIN ve ER diyagramı
+// ---------------------------------------------------------------------------
+
+export interface ExplainPlanNode {
+  id: string;
+  label: string;
+  detail: string | null;
+  /** Tahmini toplam maliyet (veritabanının biriminde). */
+  cost: number | null;
+  /** Tahmini satır sayısı. */
+  rows: number | null;
+  children: ExplainPlanNode[];
+}
+
+export interface ExplainPayload {
+  sql: string;
+}
+
+export interface ExplainResponse {
+  success: boolean;
+  connectionId: string;
+  nodes: ExplainPlanNode[];
+  /** Veritabanının döndürdüğü ham plan (metin ya da JSON). */
+  raw: string;
+}
+
+export interface ErTable {
+  name: string;
+  type: 'table' | 'view';
+  columns: Array<
+    Pick<DatabaseColumn, 'name' | 'dataType' | 'isPrimaryKey' | 'isForeignKey' | 'nullable'>
+  >;
+}
+
+export interface ErDiagramResponse {
+  success: boolean;
+  connectionId: string;
+  schema: string;
+  tables: ErTable[];
+  relationships: DatabaseForeignKey[];
+  /** Tablo sayısı sınırı aşıldıysa true. */
+  truncated: boolean;
+}

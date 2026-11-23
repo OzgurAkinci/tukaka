@@ -3,11 +3,48 @@ import type { SqlDialect } from './database-driver.interface';
 
 const quoteDouble = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
+function literal(
+  value: unknown,
+  options: { booleans: 'keyword' | 'number'; backslashEscapes: boolean },
+): string {
+  if (value === null || value === undefined) return 'NULL';
+
+  if (typeof value === 'boolean') {
+    return options.booleans === 'keyword'
+      ? value ? 'TRUE' : 'FALSE'
+      : value ? '1' : '0';
+  }
+
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return String(value);
+  }
+
+  const text =
+    typeof value === 'string'
+      ? value
+      : value instanceof Date
+        ? value.toISOString()
+        : JSON.stringify(value);
+
+  const escaped = options.backslashEscapes
+    ? text.replace(/\\/g, '\\\\').replace(/'/g, "''")
+    : text.replace(/'/g, "''");
+
+  return `'${escaped}'`;
+}
+
+const limitOffset = (limit: number, offset: number) =>
+  ` LIMIT ${limit} OFFSET ${offset}`;
+
 export const postgresDialect: SqlDialect = {
   quoteIdentifier: quoteDouble,
   placeholder: (index) => `$${index}`,
   castToText: (expression) => `CAST(${expression} AS TEXT)`,
   caseInsensitiveLike: 'ILIKE',
+  formatLiteral: (value) =>
+    literal(value, { booleans: 'keyword', backslashEscapes: false }),
+  insertDefaultValues: (tableRef) => `INSERT INTO ${tableRef} DEFAULT VALUES`,
+  paginate: limitOffset,
 };
 
 export const mysqlDialect: SqlDialect = {
@@ -16,6 +53,10 @@ export const mysqlDialect: SqlDialect = {
   castToText: (expression) => `CAST(${expression} AS CHAR)`,
   // MySQL'in varsayılan collation'ları büyük/küçük harf duyarsızdır.
   caseInsensitiveLike: 'LIKE',
+  formatLiteral: (value) =>
+    literal(value, { booleans: 'keyword', backslashEscapes: true }),
+  insertDefaultValues: (tableRef) => `INSERT INTO ${tableRef} () VALUES ()`,
+  paginate: limitOffset,
 };
 
 export const sqliteDialect: SqlDialect = {
@@ -24,4 +65,63 @@ export const sqliteDialect: SqlDialect = {
   castToText: (expression) => `CAST(${expression} AS TEXT)`,
   // SQLite LIKE, ASCII karakterlerde büyük/küçük harf duyarsızdır.
   caseInsensitiveLike: 'LIKE',
+  formatLiteral: (value) =>
+    literal(value, { booleans: 'number', backslashEscapes: false }),
+  insertDefaultValues: (tableRef) => `INSERT INTO ${tableRef} DEFAULT VALUES`,
+  paginate: limitOffset,
 };
+
+export const mssqlDialect: SqlDialect = {
+  quoteIdentifier: (name) => `[${name.replace(/]/g, ']]')}]`,
+  placeholder: (index) => `@p${index}`,
+  castToText: (expression) => `CAST(${expression} AS NVARCHAR(MAX))`,
+  // Varsayılan collation (CI) büyük/küçük harf duyarsızdır.
+  caseInsensitiveLike: 'LIKE',
+  formatLiteral: (value) =>
+    typeof value === 'string'
+      ? `N${literal(value, { booleans: 'number', backslashEscapes: false })}`
+      : literal(value, { booleans: 'number', backslashEscapes: false }),
+  insertDefaultValues: (tableRef) => `INSERT INTO ${tableRef} DEFAULT VALUES`,
+  // OFFSET/FETCH bir ORDER BY gerektirir.
+  paginate: (limit, offset, hasOrderBy) =>
+    `${hasOrderBy ? '' : ' ORDER BY (SELECT NULL)'} OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`,
+};
+
+export const clickhouseDialect: SqlDialect = {
+  quoteIdentifier: (name) => '`' + name.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`',
+  placeholder: (index) => `{p${index}:String}`,
+  castToText: (expression) => `toString(${expression})`,
+  caseInsensitiveLike: 'ILIKE',
+  formatLiteral: (value) =>
+    literal(value, { booleans: 'number', backslashEscapes: true }),
+  insertDefaultValues: (tableRef) => `INSERT INTO ${tableRef} VALUES ()`,
+  paginate: limitOffset,
+};
+
+/**
+ * Önizleme için parametre yer tutucularını SQL sabitleriyle değiştirir.
+ * Yalnızca kullanıcıya gösterilir; çalıştırmada parametreler ayrı gönderilir.
+ */
+export function renderStatement(
+  dialect: SqlDialect,
+  sql: string,
+  parameters: unknown[],
+): string {
+  const usesNumbered = dialect.placeholder(1) !== dialect.placeholder(2);
+
+  if (!usesNumbered) {
+    let index = 0;
+    return sql.replace(/\?/g, () => dialect.formatLiteral(parameters[index++]));
+  }
+
+  // $1, @p1, {p1:String} biçimleri; büyük numaralar önce (ör. $10, $1'den önce).
+  let rendered = sql;
+
+  for (let index = parameters.length; index >= 1; index--) {
+    rendered = rendered
+      .split(dialect.placeholder(index))
+      .join(dialect.formatLiteral(parameters[index - 1]));
+  }
+
+  return rendered;
+}

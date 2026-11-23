@@ -6,8 +6,12 @@ import {
   ChevronsRight,
   Filter,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
+  Save,
+  Trash2,
+  Undo2,
   X,
 } from 'lucide-react';
 import type {
@@ -20,8 +24,11 @@ import type {
 
 import { errorMessage } from '../api/client';
 import { connectionsApi } from '../api/connections';
+import { useRowEditing } from '../hooks/useRowEditing';
+import CellEditor from './CellEditor';
 import ExportMenu from './ExportMenu';
 import ResultGrid from './ResultGrid';
+import ReviewChangesDialog from './ReviewChangesDialog';
 
 interface TableDataViewerProps {
   connectionId: string;
@@ -29,6 +36,8 @@ interface TableDataViewerProps {
   table: string;
   columns: DatabaseColumn[];
   defaultPageSize: number;
+  /** Satır ekleme/düzenleme/silme açık mı (tablo + destekleyen veritabanı). */
+  canEdit: boolean;
 }
 
 const operators: Array<[FilterOperator, string]> = [
@@ -56,7 +65,7 @@ interface DraftFilter extends TableFilter {
 }
 
 const controlClass =
-  'h-7 rounded border border-[#303541] bg-[#1c2029] px-2 text-xs text-gray-200 outline-none focus:border-blue-500';
+  'h-7 rounded border border-(--c-303541) bg-(--c-1c2029) px-2 text-xs text-gray-200 outline-none focus:border-blue-500';
 
 export default function TableDataViewer({
   connectionId,
@@ -64,6 +73,7 @@ export default function TableDataViewer({
   table,
   columns,
   defaultPageSize,
+  canEdit,
 }: TableDataViewerProps) {
   const [pageSize, setPageSize] = useState(defaultPageSize);
   const [offset, setOffset] = useState(0);
@@ -75,6 +85,7 @@ export default function TableDataViewer({
   const [reloadToken, setReloadToken] = useState(0);
   // Son tamamlanan isteğin sonucu; yükleme sırasında eski veri gösterilmeye devam eder.
   const [data, setData] = useState<TableDataResponse | null>(null);
+  const [dataKey, setDataKey] = useState('');
   const [completed, setCompleted] = useState<{
     key: string;
     error: string | null;
@@ -108,6 +119,7 @@ export default function TableDataViewer({
         (response) => {
           if (cancelled) return;
           setData(response);
+          setDataKey(requestKey);
           setCompleted({ key: requestKey, error: null });
         },
         (loadError: unknown) => {
@@ -127,7 +139,70 @@ export default function TableDataViewer({
 
   const loading = completed?.key !== requestKey;
   const error = loading ? null : (completed?.error ?? null);
-  const load = () => setReloadToken((token) => token + 1);
+
+  // --- Satır düzenleme -----------------------------------------------------
+  const primaryKey = columns.filter((column) => column.isPrimaryKey).map((column) => column.name);
+  const canUpdate = canEdit && primaryKey.length > 0;
+
+  const editing = useRowEditing({
+    version: dataKey,
+    rows: data?.rows ?? [],
+    columns: data?.columns ?? [],
+    primaryKey,
+    canUpdate,
+    canInsert: canEdit,
+  });
+
+  const [review, setReview] = useState<string[] | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  /** Bekleyen değişiklik varsa sayfa/sıralama/filtre değişmeden önce onay ister. */
+  const guard = (action: () => void) => () => {
+    if (
+      editing.pendingCount > 0 &&
+      !window.confirm(`Discard ${editing.pendingCount} unsaved change(s)?`)
+    ) {
+      return;
+    }
+
+    action();
+  };
+
+  const reloadData = () => setReloadToken((token) => token + 1);
+  const load = guard(reloadData);
+
+  const openReview = async () => {
+    setEditError(null);
+
+    try {
+      const preview = await connectionsApi.applyChanges(connectionId, schema, table, {
+        changes: editing.buildChanges(),
+        dryRun: true,
+      });
+      setReview(preview.statements);
+    } catch (reviewError) {
+      setEditError(errorMessage(reviewError, 'Changes could not be prepared.'));
+    }
+  };
+
+  const applyChanges = async () => {
+    setApplying(true);
+    setEditError(null);
+
+    try {
+      await connectionsApi.applyChanges(connectionId, schema, table, {
+        changes: editing.buildChanges(),
+      });
+      editing.discard();
+      setReview(null);
+      reloadData();
+    } catch (applyError) {
+      setEditError(errorMessage(applyError, 'Changes could not be saved.'));
+    } finally {
+      setApplying(false);
+    }
+  };
 
   const addDraftFilter = () => {
     setShowFilters(true);
@@ -149,7 +224,8 @@ export default function TableDataViewer({
       ),
     );
 
-  const applyFilters = (next: DraftFilter[] = draftFilters) => {
+  const applyFilters = (next: DraftFilter[] = draftFilters) =>
+    guard(() => {
     setFilters(
       next
         .filter((filter) => filter.column)
@@ -158,7 +234,7 @@ export default function TableDataViewer({
         ),
     );
     setOffset(0);
-  };
+    })();
 
   const removeDraft = (key: number) => {
     const next = draftFilters.filter((filter) => filter.key !== key);
@@ -166,11 +242,11 @@ export default function TableDataViewer({
     applyFilters(next);
   };
 
-  const clearFilters = () => {
+  const clearFilters = guard(() => {
     setDraftFilters([]);
     setFilters([]);
     setOffset(0);
-  };
+  });
 
   const total = data?.totalCount ?? null;
   const rows = data?.rows ?? [];
@@ -180,12 +256,12 @@ export default function TableDataViewer({
   const canNext = data?.hasMore ?? false;
 
   const pagerButton =
-    'p-1 rounded text-gray-400 hover:text-white hover:bg-[#292e39] disabled:opacity-30 disabled:hover:bg-transparent';
+    'p-1 rounded text-gray-400 hover:text-white hover:bg-(--c-292e39) disabled:opacity-30 disabled:hover:bg-transparent';
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
-      <div className="shrink-0 border-b border-[#292d36] bg-[#14171d]">
+      <div className="shrink-0 border-b border-(--c-292d36) bg-(--c-14171d)">
         <div className="flex h-10 items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <button
@@ -195,7 +271,7 @@ export default function TableDataViewer({
                   ? addDraftFilter()
                   : setShowFilters((value) => !value)
               }
-              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs hover:bg-[#292e39] ${
+              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs hover:bg-(--c-292e39) ${
                 filters.length > 0 ? 'text-blue-400' : 'text-gray-400'
               }`}
             >
@@ -245,9 +321,75 @@ export default function TableDataViewer({
           </div>
         </div>
 
+        {canEdit && (
+          <div className="flex h-9 items-center gap-3 border-t border-(--c-292d36) px-4 text-[11px]">
+            <button
+              type="button"
+              onClick={editing.addRow}
+              className="flex items-center gap-1 text-gray-400 hover:text-white"
+            >
+              <Plus size={12} />
+              Add row
+            </button>
+
+            {canUpdate && (
+              <button
+                type="button"
+                disabled={editing.selectedCount === 0}
+                onClick={editing.deleteSelected}
+                className="flex items-center gap-1 text-gray-400 hover:text-red-400 disabled:opacity-40 disabled:hover:text-gray-400"
+                title="Mark selected rows for deletion (click row numbers to select)"
+              >
+                <Trash2 size={12} />
+                Delete{editing.selectedCount > 0 && ` (${editing.selectedCount})`}
+              </button>
+            )}
+
+            <span className="flex items-center gap-1 text-gray-600">
+              <Pencil size={11} />
+              {canUpdate
+                ? 'Double-click a cell to edit · click row numbers to select'
+                : 'No primary key: rows can be added but not edited or deleted'}
+            </span>
+
+            {editing.pendingCount > 0 && (
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-amber-400">
+                  {editing.pendingCount} pending change(s)
+                </span>
+                <button
+                  type="button"
+                  onClick={editing.discard}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-gray-400 hover:bg-(--c-292e39) hover:text-white"
+                >
+                  <Undo2 size={12} />
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openReview()}
+                  className="flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 font-medium text-[white] hover:bg-blue-500"
+                >
+                  <Save size={12} />
+                  Review & save
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {editError && !review && (
+          <div className="flex items-start justify-between gap-3 border-t border-(--c-292d36) bg-red-500/10 px-4 py-2 text-[11px] text-red-400">
+            <span className="whitespace-pre-wrap">{editError}</span>
+            <button type="button" onClick={() => setEditError(null)} title="Dismiss">
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
         {showFilters && draftFilters.length > 0 && (
           <form
-            className="space-y-2 border-t border-[#292d36] px-4 py-3"
+            className="space-y-2 border-t border-(--c-292d36) px-4 py-3"
             onSubmit={(event) => {
               event.preventDefault();
               applyFilters();
@@ -321,7 +463,7 @@ export default function TableDataViewer({
               </button>
               <button
                 type="submit"
-                className="ml-auto rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500"
+                className="ml-auto rounded bg-blue-600 px-3 py-1 text-xs font-medium text-[white] hover:bg-blue-500"
               >
                 Apply
               </button>
@@ -340,7 +482,7 @@ export default function TableDataViewer({
             <button
               type="button"
               onClick={load}
-              className="flex items-center gap-2 rounded bg-[#252a34] px-3 py-1.5 text-xs text-gray-300 hover:bg-[#303746]"
+              className="flex items-center gap-2 rounded bg-(--c-252a34) px-3 py-1.5 text-xs text-gray-300 hover:bg-(--c-303746)"
             >
               <RefreshCw size={12} />
               Try again
@@ -350,15 +492,34 @@ export default function TableDataViewer({
           <>
             <ResultGrid
               columns={data.columns}
-              rows={rows}
+              rows={canEdit ? editing.displayRows : rows}
               startIndex={offset + 1}
               sort={sort}
-              onSortChange={(next) => {
-                setSort(next);
-                setOffset(0);
-              }}
+              onSortChange={(next) =>
+                guard(() => {
+                  setSort(next);
+                  setOffset(0);
+                })()
+              }
+              primaryKey={primaryKey}
+              {...(canEdit && {
+                getRowState: editing.getRowState,
+                isCellChanged: editing.isCellChanged,
+                isCellDefault: editing.isCellDefault,
+                editingCell: editing.editingCell,
+                onCellDoubleClick: editing.startEdit,
+                onRowNumberClick: editing.toggleSelect,
+                renderEditor: (rowIndex: number, column: string) => (
+                  <CellEditor
+                    key={`${rowIndex}:${column}`}
+                    value={editing.displayRows[rowIndex]?.[column] ?? null}
+                    onCommit={editing.commitEdit}
+                    onCancel={editing.cancelEdit}
+                  />
+                ),
+              })}
             />
-            {rows.length === 0 && (
+            {rows.length === 0 && editing.displayRows.length === 0 && (
               <div className="py-10 text-center text-xs text-gray-500">
                 {filters.length > 0 ? 'No rows match the filters.' : 'Table is empty.'}
               </div>
@@ -373,15 +534,18 @@ export default function TableDataViewer({
       </div>
 
       {/* Pager */}
-      <div className="h-9 shrink-0 flex items-center justify-between border-t border-[#292d36] px-4 text-[11px] text-gray-500">
+      <div className="h-9 shrink-0 flex items-center justify-between border-t border-(--c-292d36) px-4 text-[11px] text-gray-500">
         <div className="flex items-center gap-2">
           <span>Rows per page</span>
           <select
             aria-label="Rows per page"
             value={pageSize}
             onChange={(event) => {
-              setPageSize(Number(event.target.value));
-              setOffset(0);
+              const size = Number(event.target.value);
+              guard(() => {
+                setPageSize(size);
+                setOffset(0);
+              })();
             }}
             className={controlClass}
           >
@@ -409,7 +573,7 @@ export default function TableDataViewer({
               type="button"
               title="First page"
               disabled={!canPrevious || loading}
-              onClick={() => setOffset(0)}
+              onClick={guard(() => setOffset(0))}
               className={pagerButton}
             >
               <ChevronsLeft size={14} />
@@ -418,7 +582,7 @@ export default function TableDataViewer({
               type="button"
               title="Previous page"
               disabled={!canPrevious || loading}
-              onClick={() => setOffset(Math.max(0, offset - pageSize))}
+              onClick={guard(() => setOffset(Math.max(0, offset - pageSize)))}
               className={pagerButton}
             >
               <ChevronLeft size={14} />
@@ -431,7 +595,7 @@ export default function TableDataViewer({
               type="button"
               title="Next page"
               disabled={!canNext || loading}
-              onClick={() => setOffset(offset + pageSize)}
+              onClick={guard(() => setOffset(offset + pageSize))}
               className={pagerButton}
             >
               <ChevronRight size={14} />
@@ -440,9 +604,9 @@ export default function TableDataViewer({
               type="button"
               title="Last page"
               disabled={!canNext || loading || pageCount === null}
-              onClick={() =>
-                pageCount !== null && setOffset((pageCount - 1) * pageSize)
-              }
+              onClick={guard(() => {
+                if (pageCount !== null) setOffset((pageCount - 1) * pageSize);
+              })}
               className={pagerButton}
             >
               <ChevronsRight size={14} />
@@ -450,6 +614,18 @@ export default function TableDataViewer({
           </div>
         </div>
       </div>
+      {review && (
+        <ReviewChangesDialog
+          statements={review}
+          applying={applying}
+          error={editError}
+          onApply={() => void applyChanges()}
+          onClose={() => {
+            setReview(null);
+            setEditError(null);
+          }}
+        />
+      )}
     </div>
   );
 }

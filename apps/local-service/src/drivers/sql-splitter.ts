@@ -72,3 +72,8 @@ export function isBlankSql(sql: string): boolean {
       .trim() === ''
   );
 }
+
+/** Sondaki `;` ve boşlukları kaldırır (EXPLAIN gibi sarmalayıcılar için). */
+export function stripTrailingSemicolons(sql: string): string {
+  return sql.replace(/[\s;]+$/, '');
+}

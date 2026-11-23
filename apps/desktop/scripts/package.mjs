@@ -58,7 +58,16 @@ const OPTIONAL_MODULES = [
   /^@fastify\//,
   /^pg-native$/,
   /^cloudflare:sockets$/,
+  // ssh2: isteğe bağlı CPU algılama; yoksa saf JS'e düşer.
+  /^cpu-features$/,
 ];
+
+/**
+ * Paketlenemeyen derlenmiş eklentiler (`*.node`). ssh2'nin `sshcrypto.node`
+ * gibi isteğe bağlı eklentileri try/catch içinde yüklenir; bulunamazlarsa
+ * kütüphane saf JavaScript uygulamasını kullanır.
+ */
+const isNativeAddon = (id) => id.endsWith('.node');
 
 /** Hedef platform ve mimari (varsayılan: bu makine). */
 const targetPlatform =
@@ -89,10 +98,12 @@ function readJson(file) {
 async function bundleService() {
   const { build } = await import('rolldown');
 
-  const external = [
+  const patterns = [
     ...NATIVE_MODULES.map((name) => new RegExp(`^${name.replace('/', '\\/')}(\\/|$)`)),
     ...OPTIONAL_MODULES,
   ];
+
+  const external = (id) => isNativeAddon(id) || patterns.some((pattern) => pattern.test(id));
 
   await build({
     input: path.join(serviceDir, 'dist/main.js'),

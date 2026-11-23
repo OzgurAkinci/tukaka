@@ -1,0 +1,97 @@
+import type { DatabaseType } from '@tukaka/contracts';
+
+import { qualifiedName, quoteIdentifier } from './databases';
+
+export interface ColumnDefinition {
+  name: string;
+  type: string;
+  nullable: boolean;
+  /** SQL ifadesi olarak varsayılan değer (ör. 0, 'text', now()); boşsa yok. */
+  defaultValue: string;
+  primaryKey: boolean;
+}
+
+/** Tip kutusu için öneriler. */
+export const columnTypeSuggestions: Record<DatabaseType, string[]> = {
+  postgresql: ['bigserial', 'serial', 'bigint', 'integer', 'numeric(12,2)', 'text', 'varchar(255)', 'boolean', 'date', 'timestamptz', 'uuid', 'jsonb'],
+  mysql: ['BIGINT AUTO_INCREMENT', 'INT', 'BIGINT', 'DECIMAL(12,2)', 'VARCHAR(255)', 'TEXT', 'BOOLEAN', 'DATE', 'DATETIME', 'JSON'],
+  mariadb: ['BIGINT AUTO_INCREMENT', 'INT', 'BIGINT', 'DECIMAL(12,2)', 'VARCHAR(255)', 'TEXT', 'BOOLEAN', 'DATE', 'DATETIME', 'JSON'],
+  mssql: ['INT IDENTITY(1,1)', 'INT', 'BIGINT', 'DECIMAL(12,2)', 'NVARCHAR(255)', 'NVARCHAR(MAX)', 'BIT', 'DATE', 'DATETIME2', 'UNIQUEIDENTIFIER'],
+  clickhouse: ['UInt64', 'Int32', 'Int64', 'Float64', 'Decimal(12,2)', 'String', 'Bool', 'Date', 'DateTime', 'UUID'],
+  sqlite: ['INTEGER', 'REAL', 'TEXT', 'BLOB', 'NUMERIC'],
+};
+
+function columnSql(type: DatabaseType, column: ColumnDefinition, inlinePrimaryKey: boolean) {
+  const parts = [quoteIdentifier(type, column.name), column.type.trim()];
+
+  if (type === 'clickhouse') {
+    // ClickHouse'ta NULL olabilirlik tipin parçasıdır.
+    if (column.nullable && !/^Nullable\(/i.test(column.type)) {
+      parts[1] = `Nullable(${column.type.trim()})`;
+    }
+  } else if (!column.nullable || column.primaryKey) {
+    parts.push('NOT NULL');
+  }
+
+  if (column.defaultValue.trim()) {
+    parts.push(`DEFAULT ${column.defaultValue.trim()}`);
+  }
+
+  if (inlinePrimaryKey) {
+    parts.push('PRIMARY KEY');
+  }
+
+  return parts.join(' ');
+}
+
+export function createTableSql(
+  type: DatabaseType,
+  schema: string,
+  table: string,
+  columns: ColumnDefinition[],
+): string {
+  const keyColumns = columns.filter((column) => column.primaryKey);
+  // SQLite'ta INTEGER PRIMARY KEY (rowid) satır içinde yazılmalıdır.
+  const inlineKey = type === 'sqlite' && keyColumns.length === 1;
+
+  const lines = columns.map((column) =>
+    `  ${columnSql(type, column, inlineKey && column.primaryKey)}`,
+  );
+
+  if (keyColumns.length > 0 && !inlineKey && type !== 'clickhouse') {
+    lines.push(
+      `  PRIMARY KEY (${keyColumns.map((column) => quoteIdentifier(type, column.name)).join(', ')})`,
+    );
+  }
+
+  let sql = `CREATE TABLE ${qualifiedName(type, schema, table)} (\n${lines.join(',\n')}\n)`;
+
+  if (type === 'clickhouse') {
+    const order = keyColumns.length
+      ? `(${keyColumns.map((column) => quoteIdentifier(type, column.name)).join(', ')})`
+      : 'tuple()';
+    sql += `\nENGINE = MergeTree\nORDER BY ${order}`;
+  }
+
+  return `${sql};`;
+}
+
+export function addColumnSql(
+  type: DatabaseType,
+  schema: string,
+  table: string,
+  column: ColumnDefinition,
+): string {
+  const keyword = type === 'mssql' ? 'ADD' : 'ADD COLUMN';
+
+  return `ALTER TABLE ${qualifiedName(type, schema, table)}\n  ${keyword} ${columnSql(type, { ...column, primaryKey: false }, false)};`;
+}
+
+export function dropColumnSql(
+  type: DatabaseType,
+  schema: string,
+  table: string,
+  column: string,
+): string {
+  return `ALTER TABLE ${qualifiedName(type, schema, table)}\n  DROP COLUMN ${quoteIdentifier(type, column)};`;
+}

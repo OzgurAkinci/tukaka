@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ExecuteQueryResponse, SavedQuery } from '@tukaka/contracts';
+import type {
+  ExecuteQueryResponse,
+  ExplainResponse,
+  SavedQuery,
+} from '@tukaka/contracts';
 
 import { errorMessage } from '../api/client';
 import { connectionsApi } from '../api/connections';
@@ -7,7 +11,7 @@ import { queriesApi } from '../api/queries';
 import { readStorage, writeStorage } from '../lib/storage';
 import type { AppSettings } from './useSettings';
 
-export type ResultPanel = 'results' | 'messages';
+export type ResultPanel = 'results' | 'messages' | 'plan';
 
 export interface QueryTab {
   kind: 'query';
@@ -27,6 +31,9 @@ export interface QueryTab {
   error: string | null;
   notice: string | null;
   panel: ResultPanel;
+  explaining: boolean;
+  plan: ExplainResponse | null;
+  planError: string | null;
 }
 
 export interface TableTab {
@@ -36,10 +43,17 @@ export interface TableTab {
   schema: string;
   table: string;
   tableType: 'table' | 'view';
-  view: 'structure' | 'data';
+  view: 'structure' | 'data' | 'ddl';
 }
 
-export type WorkspaceTab = QueryTab | TableTab;
+export interface ErTab {
+  kind: 'er';
+  id: string;
+  connectionId: string;
+  schema: string;
+}
+
+export type WorkspaceTab = QueryTab | TableTab | ErTab;
 
 const STORAGE_KEY = 'tukaka.workspace';
 
@@ -51,7 +65,8 @@ type PersistedTab =
   | Pick<
       TableTab,
       'kind' | 'id' | 'connectionId' | 'schema' | 'table' | 'tableType' | 'view'
-    >;
+    >
+  | ErTab;
 
 interface PersistedWorkspace {
   tabs: PersistedTab[];
@@ -77,6 +92,9 @@ function createQueryTab(
     error: null,
     notice: null,
     panel: 'results',
+    explaining: false,
+    plan: null,
+    planError: null,
     ...init,
   };
 }
@@ -90,7 +108,7 @@ function restore(): { tabs: WorkspaceTab[]; activeTabId: string | null } {
         return [createQueryTab({ ...tab })];
       }
 
-      if (tab?.kind === 'table') {
+      if (tab?.kind === 'table' || tab?.kind === 'er') {
         return [{ ...tab }];
       }
 
@@ -118,7 +136,9 @@ function persist(tabs: WorkspaceTab[], activeTabId: string | null) {
   const data: PersistedWorkspace = {
     activeTabId,
     tabs: tabs.map((tab): PersistedTab =>
-      tab.kind === 'query'
+      tab.kind === 'er'
+        ? { ...tab }
+        : tab.kind === 'query'
         ? {
             kind: 'query',
             id: tab.id,
@@ -268,6 +288,23 @@ export function useWorkspaceTabs(settings: AppSettings) {
     [],
   );
 
+  const openErTab = useCallback((connectionId: string, schema: string) => {
+    const existing = tabsRef.current.find(
+      (tab) =>
+        tab.kind === 'er' && tab.connectionId === connectionId && tab.schema === schema,
+    );
+
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+
+    const tab: ErTab = { kind: 'er', id: newId(), connectionId, schema };
+
+    setTabs((previous) => [...previous, tab]);
+    setActiveTabId(tab.id);
+  }, []);
+
   const closeTab = useCallback((id: string) => {
     const current = tabsRef.current;
     const index = current.findIndex((tab) => tab.id === id);
@@ -361,6 +398,45 @@ export function useWorkspaceTabs(settings: AppSettings) {
     [settings.maxRows, settings.timeoutSeconds, updateQueryTab],
   );
 
+  /** Sorgunun tahmini planını getirir (sorgu çalıştırılmaz). */
+  const explainQuery = useCallback(
+    async (tabId: string, sqlOverride?: string) => {
+      const tab = tabsRef.current.find(
+        (item): item is QueryTab => item.id === tabId && item.kind === 'query',
+      );
+
+      if (!tab || tab.explaining) return;
+
+      const sql = (sqlOverride ?? tab.sql).trim();
+
+      if (!tab.connectionId || !sql) {
+        updateQueryTab(tabId, {
+          panel: 'plan',
+          plan: null,
+          planError: !tab.connectionId
+            ? 'Please select a database connection.'
+            : 'SQL query cannot be empty.',
+        });
+        return;
+      }
+
+      updateQueryTab(tabId, { explaining: true, panel: 'plan', planError: null });
+
+      try {
+        const plan = await connectionsApi.explain(tab.connectionId, sql);
+        updateQueryTab(tabId, { plan, planError: null });
+      } catch (error) {
+        updateQueryTab(tabId, {
+          plan: null,
+          planError: errorMessage(error, 'Query plan could not be loaded.'),
+        });
+      } finally {
+        updateQueryTab(tabId, { explaining: false });
+      }
+    },
+    [updateQueryTab],
+  );
+
   const cancelQuery = useCallback(
     async (tabId: string) => {
       const tab = tabsRef.current.find((item) => item.id === tabId);
@@ -387,7 +463,7 @@ export function useWorkspaceTabs(settings: AppSettings) {
     setTabs((previous) => {
       const remaining = previous
         .filter(
-          (tab) => !(tab.kind === 'table' && tab.connectionId === connectionId),
+          (tab) => !(tab.kind !== 'query' && tab.connectionId === connectionId),
         )
         .map((tab) =>
           tab.kind === 'query' && tab.connectionId === connectionId
@@ -404,7 +480,7 @@ export function useWorkspaceTabs(settings: AppSettings) {
       tabsRef.current.some(
         (tab) =>
           tab.id === active &&
-          tab.kind === 'table' &&
+          tab.kind !== 'query' &&
           tab.connectionId === connectionId,
       )
         ? null
@@ -425,8 +501,10 @@ export function useWorkspaceTabs(settings: AppSettings) {
     openQueryTab,
     openSavedQuery,
     openTableTab,
+    openErTab,
     closeTab,
     runQuery,
+    explainQuery,
     cancelQuery,
     handleConnectionRemoved,
   };

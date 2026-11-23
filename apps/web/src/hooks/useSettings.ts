@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 
 import { readStorage, writeStorage } from '../lib/storage';
+import type { ThemePreference } from '../lib/theme';
 
 export interface AppSettings {
   /** SQL editöründen çalışan sorgularda döndürülecek en fazla satır. */
@@ -9,12 +10,15 @@ export interface AppSettings {
   timeoutSeconds: number;
   /** Data Viewer sayfa boyutu. */
   pageSize: number;
+  /** Arayüz teması. */
+  theme: ThemePreference;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   maxRows: 1000,
   timeoutSeconds: 30,
   pageSize: 100,
+  theme: 'dark',
 };
 
 const STORAGE_KEY = 'tukaka.settings';

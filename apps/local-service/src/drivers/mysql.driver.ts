@@ -13,13 +13,26 @@ import {
   CompletionData,
   DatabaseColumn,
   DatabaseDriver,
+  DatabaseForeignKey,
+  DatabaseIndex,
+  DatabaseRoutine,
+  ExplainPlanNode,
+  ExplainResult,
+  ParameterizedStatement,
+  SchemaColumnRow,
   DatabaseSchema,
   DatabaseTable,
   QueryOptions,
   QueryResult,
+  assertAffectedRows,
   groupCompletionRows,
 } from './database-driver.interface';
 import { mysqlDialect } from './sql-dialects';
+import {
+  isBlankSql,
+  splitSqlSegments,
+  stripTrailingSemicolons,
+} from './sql-splitter';
 import { PoolRegistry } from './pool-registry';
 import { resolveSsl } from './ssl-options';
 
@@ -70,6 +83,86 @@ export function normalizeResults(
   const fieldSets = fields as Array<FieldPacket[] | undefined>;
 
   return results.map((item, index) => toStatement(item, fieldSets[index]));
+}
+
+/** EXPLAIN FORMAT=JSON çıktısında alt düğüm olarak gezilmeyecek alanlar. */
+const MYSQL_PLAN_SKIP = new Set([
+  'cost_info',
+  'used_columns',
+  'possible_keys',
+  'used_key_parts',
+  'ref',
+  'key',
+  'key_length',
+  'attached_condition',
+  'message',
+  'select_id',
+  'filtered',
+]);
+
+let mysqlPlanCounter = 0;
+
+const planText = (value: unknown) =>
+  typeof value === 'string' ? value : JSON.stringify(value);
+
+/**
+ * MySQL/MariaDB EXPLAIN FORMAT=JSON çıktısını genel plan ağacına çevirir.
+ */
+export function mysqlPlanToNode(
+  value: Record<string, unknown>,
+  name = 'query_block',
+): ExplainPlanNode {
+  if (name === 'query_block' && value.query_block) {
+    return mysqlPlanToNode(value.query_block as Record<string, unknown>, name);
+  }
+
+  const cost = value.cost_info as Record<string, string> | undefined;
+  const table = value.table_name as string | undefined;
+
+  const details = [
+    value.key ? `key ${planText(value.key)}` : null,
+    value.attached_condition ? `filter: ${planText(value.attached_condition)}` : null,
+    value.message ? planText(value.message) : null,
+  ].filter(Boolean);
+
+  const children: ExplainPlanNode[] = [];
+
+  for (const [key, child] of Object.entries(value)) {
+    if (MYSQL_PLAN_SKIP.has(key) || child === null || typeof child !== 'object') {
+      continue;
+    }
+
+    const items = Array.isArray(child) ? child : [child];
+
+    for (const item of items) {
+      if (item === null || typeof item !== 'object') continue;
+
+      const record = item as Record<string, unknown>;
+
+      // nested_loop: [{ table: {...} }, ...]
+      if (record.table && typeof record.table === 'object' && Object.keys(record).length === 1) {
+        children.push(mysqlPlanToNode(record.table as Record<string, unknown>, 'table'));
+      } else {
+        children.push(mysqlPlanToNode(record, key));
+      }
+    }
+  }
+
+  const costValue = Number(cost?.query_cost ?? cost?.prefix_cost ?? cost?.read_cost);
+  const rowsValue = Number(
+    value.rows_examined_per_scan ?? value.rows_produced_per_join ?? value.rows,
+  );
+
+  return {
+    id: String(++mysqlPlanCounter),
+    label: table
+      ? `${planText(value.access_type ?? 'scan').toUpperCase()} ${table}`
+      : name.replace(/_/g, ' '),
+    detail: details.length ? details.join(' · ') : null,
+    cost: Number.isFinite(costValue) ? costValue : null,
+    rows: Number.isFinite(rowsValue) ? rowsValue : null,
+    children,
+  };
 }
 
 export class MySqlDriver implements DatabaseDriver {
@@ -415,6 +508,274 @@ export class MySqlDriver implements DatabaseDriver {
           maxColumns,
         ),
       };
+    });
+  }
+
+  async getIndexes(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    table: string,
+  ): Promise<DatabaseIndex[]> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const [rows] = await poolConnection.execute(
+        `
+          SELECT INDEX_NAME AS name, NON_UNIQUE AS nonUnique, COLUMN_NAME AS columnName
+          FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+          ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME, SEQ_IN_INDEX
+        `,
+        [schema, table],
+      );
+
+      const indexes = new Map<string, DatabaseIndex>();
+
+      for (const row of rows as Array<{
+        name: string;
+        nonUnique: number | string;
+        columnName: string | null;
+      }>) {
+        const index = indexes.get(row.name) ?? {
+          name: row.name,
+          columns: [],
+          unique: Number(row.nonUnique) === 0,
+          primary: row.name === 'PRIMARY',
+        };
+
+        index.columns.push(row.columnName ?? '(expression)');
+        indexes.set(row.name, index);
+      }
+
+      return [...indexes.values()];
+    });
+  }
+
+  async getForeignKeys(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    table?: string,
+  ): Promise<DatabaseForeignKey[]> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const [rows] = await poolConnection.execute(
+        `
+          SELECT
+            CONSTRAINT_NAME AS name,
+            TABLE_NAME AS tableName,
+            COLUMN_NAME AS columnName,
+            REFERENCED_TABLE_SCHEMA AS referencedSchema,
+            REFERENCED_TABLE_NAME AS referencedTable,
+            REFERENCED_COLUMN_NAME AS referencedColumn
+          FROM information_schema.KEY_COLUMN_USAGE
+          WHERE TABLE_SCHEMA = ?
+            AND REFERENCED_TABLE_NAME IS NOT NULL
+            AND (? IS NULL OR TABLE_NAME = ?)
+          ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION
+        `,
+        [schema, table ?? null, table ?? null],
+      );
+
+      const keys = new Map<string, DatabaseForeignKey>();
+
+      for (const row of rows as Array<{
+        name: string;
+        tableName: string;
+        columnName: string;
+        referencedSchema: string;
+        referencedTable: string;
+        referencedColumn: string;
+      }>) {
+        const id = `${row.tableName}.${row.name}`;
+        const key = keys.get(id) ?? {
+          name: row.name,
+          table: row.tableName,
+          columns: [],
+          referencedSchema: row.referencedSchema,
+          referencedTable: row.referencedTable,
+          referencedColumns: [],
+        };
+
+        key.columns.push(row.columnName);
+        key.referencedColumns.push(row.referencedColumn);
+        keys.set(id, key);
+      }
+
+      return [...keys.values()];
+    });
+  }
+
+  async getSchemaColumns(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+  ): Promise<SchemaColumnRow[]> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const [rows] = await poolConnection.execute(
+        `
+          SELECT
+            TABLE_NAME AS tableName,
+            COLUMN_NAME AS name,
+            COLUMN_TYPE AS dataType,
+            (IS_NULLABLE = 'YES') AS nullable,
+            (COLUMN_KEY = 'PRI') AS isPrimaryKey
+          FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = ?
+          ORDER BY TABLE_NAME, ORDINAL_POSITION
+        `,
+        [schema],
+      );
+
+      return (rows as Array<{
+        tableName: string;
+        name: string;
+        dataType: string;
+        nullable: number;
+        isPrimaryKey: number;
+      }>).map((row) => ({
+        table: row.tableName,
+        name: row.name,
+        dataType: row.dataType,
+        nullable: Boolean(Number(row.nullable)),
+        isPrimaryKey: Boolean(Number(row.isPrimaryKey)),
+        isForeignKey: false,
+      }));
+    });
+  }
+
+  async getTableDdl(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    table: string,
+  ): Promise<string | null> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const quote = this.dialect.quoteIdentifier;
+
+      try {
+        const [rows] = await poolConnection.query(
+          `SHOW CREATE TABLE ${quote(schema)}.${quote(table)}`,
+        );
+        const row = (rows as Array<Record<string, string>>)[0];
+
+        return row?.['Create Table'] ?? row?.['Create View'] ?? null;
+      } catch (error) {
+        if ((error as { code?: string }).code === 'ER_NO_SUCH_TABLE') return null;
+        throw error;
+      }
+    });
+  }
+
+  async getRoutines(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+  ): Promise<DatabaseRoutine[]> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const [rows] = await poolConnection.execute(
+        `
+          SELECT
+            ROUTINE_NAME AS name,
+            ROUTINE_SCHEMA AS \`schema\`,
+            LOWER(ROUTINE_TYPE) AS type,
+            DTD_IDENTIFIER AS returnType
+          FROM information_schema.ROUTINES
+          WHERE ROUTINE_SCHEMA = ?
+          ORDER BY ROUTINE_NAME
+        `,
+        [schema],
+      );
+
+      return (rows as Array<Omit<DatabaseRoutine, 'id' | 'arguments'>>).map(
+        (row) => ({
+          ...row,
+          // MySQL'de aşırı yükleme yoktur; ad yeterince benzersizdir.
+          id: `${row.type}:${row.name}`,
+          arguments: null,
+        }),
+      );
+    });
+  }
+
+  async getRoutineDefinition(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    routine: Pick<DatabaseRoutine, 'id' | 'name' | 'type'>,
+  ): Promise<string> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const quote = this.dialect.quoteIdentifier;
+      const kind = routine.type === 'procedure' ? 'PROCEDURE' : 'FUNCTION';
+      const [rows] = await poolConnection.query(
+        `SHOW CREATE ${kind} ${quote(schema)}.${quote(routine.name)}`,
+      );
+      const row = (rows as Array<Record<string, string | null>>)[0];
+      const definition = row?.[`Create ${kind === 'PROCEDURE' ? 'Procedure' : 'Function'}`];
+
+      if (!definition) {
+        throw new Error(
+          'Routine definition is not available (it may require additional privileges).',
+        );
+      }
+
+      return definition;
+    });
+  }
+
+  async explain(
+    connection: ConnectionProfile,
+    password: string | null,
+    sql: string,
+  ): Promise<ExplainResult> {
+    // Havuz `multipleStatements` ile açılır; EXPLAIN'e ikinci bir ifade
+    // eklenip çalıştırılmasını önlemek için tek ifade şartı koşulur.
+    const statements = splitSqlSegments(sql).filter((part) => !isBlankSql(part));
+
+    if (statements.length !== 1) {
+      throw new Error('EXPLAIN supports exactly one statement.');
+    }
+
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const [rows] = await poolConnection.query({
+        sql: `EXPLAIN FORMAT=JSON ${stripTrailingSemicolons(statements[0])}`,
+        timeout: 30_000,
+      });
+
+      const raw = (rows as Array<Record<string, string>>)[0]?.EXPLAIN ?? '{}';
+
+      return {
+        nodes: [mysqlPlanToNode(JSON.parse(raw) as Record<string, unknown>)],
+        raw: JSON.stringify(JSON.parse(raw), null, 2),
+      };
+    });
+  }
+
+  async executeInTransaction(
+    connection: ConnectionProfile,
+    password: string | null,
+    statements: ParameterizedStatement[],
+  ): Promise<number[]> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      await poolConnection.beginTransaction();
+
+      try {
+        const affected: number[] = [];
+
+        for (const [index, statement] of statements.entries()) {
+          const [result] = await poolConnection.query(
+            statement.sql,
+            statement.parameters as any[],
+          );
+          const count = isResultSetHeader(result) ? result.affectedRows : 0;
+          assertAffectedRows(statement, count, index);
+          affected.push(count);
+        }
+
+        await poolConnection.commit();
+        return affected;
+      } catch (error) {
+        await poolConnection.rollback().catch(() => undefined);
+        throw error;
+      }
     });
   }
 

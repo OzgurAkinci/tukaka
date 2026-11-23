@@ -1,5 +1,9 @@
 import { useCallback, useState } from 'react';
-import type { DatabaseSchema, DatabaseTable } from '@tukaka/contracts';
+import type {
+  DatabaseRoutine,
+  DatabaseSchema,
+  DatabaseTable,
+} from '@tukaka/contracts';
 
 import { errorMessage } from '../api/client';
 import { connectionsApi } from '../api/connections';
@@ -19,6 +23,7 @@ export function useExplorer() {
   );
   const [schemas, setSchemas] = useState<Record<string, DatabaseSchema[]>>({});
   const [tables, setTables] = useState<Record<string, DatabaseTable[]>>({});
+  const [routines, setRoutines] = useState<Record<string, DatabaseRoutine[]>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -71,6 +76,23 @@ export function useExplorer() {
     [tables],
   );
 
+  /** Fonksiyon/prosedür listesi; hata olursa sessizce boş kalır (yetki vb.). */
+  const loadRoutines = useCallback(
+    async (connectionId: string, schema: string, force = false) => {
+      const key = schemaKey(connectionId, schema);
+
+      if (!force && routines[key]) return;
+
+      try {
+        const response = await connectionsApi.getRoutines(connectionId, schema);
+        setRoutines((previous) => ({ ...previous, [key]: response.routines }));
+      } catch {
+        setRoutines((previous) => ({ ...previous, [key]: [] }));
+      }
+    },
+    [routines],
+  );
+
   const toggleConnection = useCallback(
     (connectionId: string) => {
       const expanding = !expandedConnections.has(connectionId);
@@ -88,7 +110,7 @@ export function useExplorer() {
   );
 
   const toggleSchema = useCallback(
-    (connectionId: string, schema: string) => {
+    (connectionId: string, schema: string, withRoutines = false) => {
       const key = schemaKey(connectionId, schema);
       const expanding = !expandedSchemas.has(key);
 
@@ -99,20 +121,25 @@ export function useExplorer() {
         return next;
       });
 
-      if (expanding) void loadTables(connectionId, schema);
+      if (expanding) {
+        void loadTables(connectionId, schema);
+        if (withRoutines) void loadRoutines(connectionId, schema);
+      }
     },
-    [expandedSchemas, loadTables],
+    [expandedSchemas, loadTables, loadRoutines],
   );
 
   const refreshConnection = useCallback(
     async (connectionId: string) => {
       const prefix = `${connectionId}::`;
 
-      setTables((previous) =>
+      const keep = <T,>(previous: Record<string, T>) =>
         Object.fromEntries(
           Object.entries(previous).filter(([key]) => !key.startsWith(prefix)),
-        ),
-      );
+        );
+
+      setTables(keep);
+      setRoutines(keep);
 
       await loadSchemas(connectionId, true);
 
@@ -120,10 +147,13 @@ export function useExplorer() {
       await Promise.all(
         [...expandedSchemas]
           .filter((key) => key.startsWith(prefix))
-          .map((key) => loadTables(connectionId, key.slice(prefix.length), true)),
+          .flatMap((key) => [
+            loadTables(connectionId, key.slice(prefix.length), true),
+            loadRoutines(connectionId, key.slice(prefix.length), true),
+          ]),
       );
     },
-    [expandedSchemas, loadSchemas, loadTables],
+    [expandedSchemas, loadSchemas, loadTables, loadRoutines],
   );
 
   return {
@@ -131,6 +161,7 @@ export function useExplorer() {
     expandedSchemas,
     schemas,
     tables,
+    routines,
     loading,
     errors,
     loadSchemas,

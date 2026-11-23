@@ -1,4 +1,5 @@
 
+import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
@@ -9,9 +10,22 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
+import type { DatabaseType } from '@tukaka/contracts';
 
-export type ConnectionType = 'postgresql' | 'mysql' | 'sqlite';
+import { ConnectionOptionsDto } from './connection-options.dto';
+
+export type ConnectionType = DatabaseType;
+
+export const CONNECTION_TYPES: ConnectionType[] = [
+  'postgresql',
+  'mysql',
+  'mariadb',
+  'sqlite',
+  'mssql',
+  'clickhouse',
+];
 
 export type SslMode =
   | 'disable'
@@ -26,7 +40,7 @@ export class CreateConnectionDto {
   @MaxLength(100)
   name!: string;
 
-  @IsIn(['postgresql', 'mysql', 'sqlite'])
+  @IsIn(CONNECTION_TYPES)
   type!: ConnectionType;
 
   @IsString()
@@ -61,4 +75,9 @@ export class CreateConnectionDto {
     'verify-full',
   ])
   sslMode?: SslMode;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ConnectionOptionsDto)
+  options?: ConnectionOptionsDto;
 }

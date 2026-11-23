@@ -3,6 +3,7 @@ const {
   app,
   BrowserWindow,
   dialog,
+  ipcMain,
   net,
   protocol,
   shell,
@@ -234,6 +235,73 @@ function registerAppProtocol() {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Dosya seçici (arayüzden IPC ile)
+// ---------------------------------------------------------------------------
+
+const FILE_DIALOGS = {
+  sqlite: {
+    kind: 'open',
+    options: {
+      title: 'Open SQLite database',
+      properties: ['openFile'],
+      filters: [
+        { name: 'SQLite databases', extensions: ['sqlite', 'sqlite3', 'db', 'db3', 's3db'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    },
+  },
+  'sqlite-new': {
+    kind: 'save',
+    options: {
+      title: 'Create SQLite database',
+      defaultPath: 'database.sqlite',
+      buttonLabel: 'Create',
+      filters: [{ name: 'SQLite databases', extensions: ['sqlite', 'db'] }],
+    },
+  },
+  'ssh-key': {
+    kind: 'open',
+    options: {
+      title: 'Choose SSH private key',
+      defaultPath: path.join(app.getPath('home'), '.ssh'),
+      properties: ['openFile', 'showHiddenFiles'],
+    },
+  },
+};
+
+ipcMain.handle('tukaka:select-file', async (event, kind) => {
+  // Yalnızca uygulamanın kendi sayfası dosya penceresi açabilir.
+  if (!event.senderFrame || !isAllowedNavigation(event.senderFrame.url)) {
+    throw new Error('File dialogs are not allowed from this page.');
+  }
+
+  const spec = FILE_DIALOGS[kind];
+
+  if (!spec) {
+    throw new Error(`Unknown file dialog: ${kind}`);
+  }
+
+  const window = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+
+  if (spec.kind === 'save') {
+    const result = await dialog.showSaveDialog(window, spec.options);
+
+    if (result.canceled || !result.filePath) return null;
+
+    // Boş bir dosya geçerli (boş) bir SQLite veritabanıdır.
+    if (!fs.existsSync(result.filePath)) {
+      fs.closeSync(fs.openSync(result.filePath, 'a'));
+    }
+
+    return result.filePath;
+  }
+
+  const result = await dialog.showOpenDialog(window, spec.options);
+
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+});
 
 function isAllowedNavigation(url) {
   return isProduction ? url.startsWith(`${APP_ORIGIN}/`) : url.startsWith(DEV_WEB_URL);

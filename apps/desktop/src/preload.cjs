@@ -1,5 +1,5 @@
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 function readArgument(name) {
   const prefix = `--${name}=`;
@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   platform: process.platform,
   sessionToken: readArgument('tukaka-session-token'),
   serviceUrl: readArgument('tukaka-service-url'),
+  /** kind: 'sqlite' | 'sqlite-new' | 'ssh-key'; vazgeçilirse null döner. */
+  selectFile: (kind) => ipcRenderer.invoke('tukaka:select-file', kind),
 });

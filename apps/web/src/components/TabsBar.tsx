@@ -1,4 +1,4 @@
-import { FileCode2, Loader2, Plus, Table2, X } from 'lucide-react';
+import { FileCode2, Loader2, Network, Plus, Table2, X } from 'lucide-react';
 
 import { isDirty, type WorkspaceTab } from '../hooks/useWorkspaceTabs';
 
@@ -11,7 +11,9 @@ interface TabsBarProps {
 }
 
 function tabLabel(tab: WorkspaceTab) {
-  return tab.kind === 'query' ? tab.title : tab.table;
+  if (tab.kind === 'query') return tab.title;
+  if (tab.kind === 'er') return `ER · ${tab.schema}`;
+  return tab.table;
 }
 
 export default function TabsBar({
@@ -22,7 +24,7 @@ export default function TabsBar({
   onNewQuery,
 }: TabsBarProps) {
   return (
-    <div className="h-11 shrink-0 flex items-center border-b border-[#292d36] bg-[#171a21]">
+    <div className="h-11 shrink-0 flex items-center border-b border-(--c-292d36) bg-(--c-171a21)">
       <div role="tablist" className="flex h-full min-w-0 overflow-x-auto">
         {tabs.map((tab) => {
           const active = tab.id === activeTabId;
@@ -47,11 +49,13 @@ export default function TabsBar({
               title={
                 tab.kind === 'table'
                   ? `${tab.schema}.${tab.table}`
-                  : tab.title
+                  : tab.kind === 'er'
+                    ? `ER diagram: ${tab.schema}`
+                    : tab.title
               }
-              className={`group h-full shrink-0 px-4 flex items-center gap-2 border-r border-[#292d36] text-xs cursor-pointer select-none ${
+              className={`group h-full shrink-0 px-4 flex items-center gap-2 border-r border-(--c-292d36) text-xs cursor-pointer select-none ${
                 active
-                  ? 'bg-[#111318] text-white border-t-2 border-t-blue-500'
+                  ? 'bg-(--c-111318) text-white border-t-2 border-t-blue-500'
                   : 'text-gray-500 hover:text-gray-300'
               }`}
             >
@@ -64,6 +68,8 @@ export default function TabsBar({
                     className={active ? 'text-blue-400' : 'text-gray-500'}
                   />
                 )
+              ) : tab.kind === 'er' ? (
+                <Network size={14} className="text-emerald-400" />
               ) : (
                 <Table2
                   size={14}
@@ -84,7 +90,7 @@ export default function TabsBar({
                   event.stopPropagation();
                   onClose(tab.id);
                 }}
-                className="ml-1 rounded p-0.5 text-gray-600 hover:bg-[#292e39] hover:text-white"
+                className="ml-1 rounded p-0.5 text-gray-600 hover:bg-(--c-292e39) hover:text-white"
               >
                 <X size={12} />
               </button>

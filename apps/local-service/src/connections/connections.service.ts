@@ -14,9 +14,19 @@ import { CredentialService } from '../credentials/credential.service';
 import { ConnectionEventsService } from './connection-events.service';
 
 
-import type { ConnectionProfile } from '@tukaka/contracts';
+import type { ConnectionOptions, ConnectionProfile } from '@tukaka/contracts';
 
 export type { ConnectionProfile };
+
+/** `options_json` alanını güvenle ayrıştırır. */
+export function parseOptions(json: string | null | undefined): ConnectionOptions {
+    try {
+        const value: unknown = JSON.parse(json || '{}');
+        return value && typeof value === 'object' ? (value as ConnectionOptions) : {};
+    } catch {
+        return {};
+    }
+}
 
 @Injectable()
 export class ConnectionsService {
@@ -40,7 +50,8 @@ export class ConnectionsService {
           port,
           database,
           username,
-          ssl_mode
+          ssl_mode,
+          options_json
         )
         VALUES (
           @id,
@@ -50,7 +61,8 @@ export class ConnectionsService {
           @port,
           @database,
           @username,
-          @ssl_mode
+          @ssl_mode,
+          @options_json
         )
       `)
             .run({
@@ -62,6 +74,7 @@ export class ConnectionsService {
                 database: dto.database.trim(),
                 username: dto.username ?? null,
                 ssl_mode: dto.sslMode ?? 'prefer',
+                options_json: JSON.stringify(dto.options ?? {}),
             });
 
         if (result.changes !== 1) {
@@ -110,6 +123,10 @@ export class ConnectionsService {
             port: dto.port ?? current.port,
             username: dto.username ?? current.username,
             ssl_mode: dto.sslMode ?? current.ssl_mode,
+            options_json:
+                dto.options !== undefined
+                    ? JSON.stringify({ ...parseOptions(current.options_json), ssh: dto.options.ssh })
+                    : current.options_json,
         };
 
         if (current.type !== 'sqlite') {
@@ -133,6 +150,7 @@ export class ConnectionsService {
         port = @port,
         username = @username,
         ssl_mode = @ssl_mode,
+        options_json = @options_json,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = @id
     `)
@@ -149,8 +167,9 @@ export class ConnectionsService {
     remove(id: string): void {
         this.findOne(id);
 
-        // Önce işletim sistemi güvenli kasasındaki şifreyi sil.
+        // Önce işletim sistemi güvenli kasasındaki sırları sil.
         this.credentialService.deletePassword(id);
+        this.credentialService.deleteSshSecret(id);
 
         // Ardından bağlantı profilini SQLite'tan sil.
         const result = this.databaseService

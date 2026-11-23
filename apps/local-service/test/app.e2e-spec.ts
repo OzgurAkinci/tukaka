@@ -253,4 +253,127 @@ describe('Local service (e2e)', () => {
         expect(response.body.cancelled).toBe(false);
       });
   });
+
+  it('edits rows, explains queries and builds the ER diagram', async () => {
+    const server = app.getHttpServer();
+    const auth = { Authorization: `Bearer ${TOKEN}` };
+
+    const sqliteFile = path.join(dataDirectory, 'edit.sqlite');
+    fs.writeFileSync(sqliteFile, '');
+
+    const { body: connection } = await request(server)
+      .post('/connections')
+      .set(auth)
+      .send({ name: 'Edit', type: 'sqlite', database: sqliteFile })
+      .expect(201);
+
+    const base = `/connections/${connection.id}`;
+
+    await request(server)
+      .post(`${base}/query`)
+      .set(auth)
+      .send({
+        sql: `CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+              CREATE TABLE books (id INTEGER PRIMARY KEY, author_id INTEGER REFERENCES authors(id), title TEXT);
+              INSERT INTO authors VALUES (1, 'Orhan'), (2, 'Elif');`,
+      })
+      .expect(201);
+
+    const changesUrl = `${base}/schemas/main/tables/authors/changes`;
+    const changes = [
+      { type: 'insert', values: { id: 3, name: "Sabahattin 'Ali'" } },
+      { type: 'update', key: { id: 1 }, values: { name: 'Orhan P.' } },
+      { type: 'delete', key: { id: 2 } },
+    ];
+
+    const preview = await request(server)
+      .post(changesUrl)
+      .set(auth)
+      .send({ changes, dryRun: true })
+      .expect(201);
+
+    expect(preview.body.affectedRows).toBeNull();
+    expect(preview.body.statements[0]).toBe(
+      `INSERT INTO "main"."authors" ("id", "name") VALUES (3, 'Sabahattin ''Ali''')`,
+    );
+
+    const applied = await request(server)
+      .post(changesUrl)
+      .set(auth)
+      .send({ changes })
+      .expect(201);
+
+    expect(applied.body.affectedRows).toEqual([1, 1, 1]);
+
+    // Var olmayan satırı güncellemek tüm işlemi geri alır.
+    await request(server)
+      .post(changesUrl)
+      .set(auth)
+      .send({
+        changes: [
+          { type: 'insert', values: { id: 4, name: 'Yaşar' } },
+          { type: 'update', key: { id: 99 }, values: { name: 'Ghost' } },
+        ],
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toMatch(/No changes were saved/);
+      });
+
+    const rows = await request(server)
+      .post(`${base}/query`)
+      .set(auth)
+      .send({ sql: 'SELECT id, name FROM authors ORDER BY id' })
+      .expect(201);
+
+    expect(rows.body.rows).toEqual([
+      { id: 1, name: 'Orhan P.' },
+      { id: 3, name: "Sabahattin 'Ali'" },
+    ]);
+
+    await request(server)
+      .post(changesUrl)
+      .set(auth)
+      .send({ changes: [{ type: 'update', key: { name: 'x' }, values: { name: 'y' } }] })
+      .expect(400);
+
+    const details = await request(server)
+      .get(`${base}/schemas/main/tables/books/details`)
+      .set(auth)
+      .expect(200);
+
+    expect(details.body.foreignKeys).toHaveLength(1);
+    expect(details.body.ddl).toContain('CREATE TABLE books');
+
+    const er = await request(server).get(`${base}/schemas/main/er`).set(auth).expect(200);
+
+    expect(er.body.tables.map((t: { name: string }) => t.name)).toEqual(['authors', 'books']);
+    expect(er.body.relationships).toEqual([
+      expect.objectContaining({ table: 'books', referencedTable: 'authors' }),
+    ]);
+    expect(
+      er.body.tables[1].columns.find((c: { name: string }) => c.name === 'author_id').isForeignKey,
+    ).toBe(true);
+
+    const plan = await request(server)
+      .post(`${base}/explain`)
+      .set(auth)
+      .send({ sql: 'SELECT * FROM books WHERE author_id = 1' })
+      .expect(201);
+
+    expect(plan.body.nodes.length).toBeGreaterThan(0);
+
+    await request(server)
+      .post(`${base}/explain`)
+      .set(auth)
+      .send({ sql: 'SELEC nonsense' })
+      .expect(400);
+
+    const routines = await request(server)
+      .get(`${base}/schemas/main/routines`)
+      .set(auth)
+      .expect(200);
+
+    expect(routines.body.routines).toEqual([]);
+  });
 });

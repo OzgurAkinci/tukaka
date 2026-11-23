@@ -11,6 +11,8 @@ import { DatabaseDriver } from './database-driver.interface';
 import { PostgreSqlDriver } from './postgresql.driver';
 import { MySqlDriver } from './mysql.driver';
 import { SqliteDriver } from './sqlite.driver';
+import { MssqlDriver } from './mssql.driver';
+import { ClickHouseDriver } from './clickhouse.driver';
 
 import { ConnectionProfile } from '../connections/connections.service';
 import { ConnectionEventsService } from '../connections/connection-events.service';
@@ -20,11 +22,19 @@ export class DriverFactory implements OnModuleDestroy {
   private readonly logger = new Logger(DriverFactory.name);
 
   private readonly drivers: Record<ConnectionProfile['type'], DatabaseDriver> =
-    {
+    (() => {
+    const mysql = new MySqlDriver();
+
+    return {
       postgresql: new PostgreSqlDriver(),
-      mysql: new MySqlDriver(),
+      mysql,
+      // MariaDB, MySQL protokolüyle uyumludur.
+      mariadb: mysql,
       sqlite: new SqliteDriver(),
+      mssql: new MssqlDriver(),
+      clickhouse: new ClickHouseDriver(),
     };
+  })();
 
   private readonly subscription: Subscription;
 
@@ -50,7 +60,7 @@ export class DriverFactory implements OnModuleDestroy {
 
   async release(connectionId: string): Promise<void> {
     await Promise.all(
-      Object.values(this.drivers).map((driver) =>
+      this.uniqueDrivers().map((driver) =>
         driver.release(connectionId).catch((error: unknown) => {
           this.logger.warn(
             `Pool release failed for ${connectionId}: ${String(error)}`,
@@ -64,9 +74,13 @@ export class DriverFactory implements OnModuleDestroy {
     this.subscription.unsubscribe();
 
     await Promise.all(
-      Object.values(this.drivers).map((driver) =>
+      this.uniqueDrivers().map((driver) =>
         driver.releaseAll().catch(() => undefined),
       ),
     );
+  }
+
+  private uniqueDrivers(): DatabaseDriver[] {
+    return [...new Set(Object.values(this.drivers))];
   }
 }

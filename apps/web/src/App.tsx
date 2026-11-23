@@ -10,14 +10,21 @@ import {
   Settings,
   Zap,
 } from 'lucide-react';
-import type { ConnectionProfile, SavedQuery } from '@tukaka/contracts';
+import type {
+  ConnectionProfile,
+  DatabaseRoutine,
+  SavedQuery,
+} from '@tukaka/contracts';
 
 import { errorMessage } from './api/client';
+import { connectionsApi } from './api/connections';
 import { queriesApi } from './api/queries';
 import ConnectionDialog, {
   type ConnectionConfig,
 } from './components/ConnectionDialog';
+import ColumnDesigner from './components/ColumnDesigner';
 import DatabaseExplorer from './components/DatabaseExplorer';
+import ErDiagramView from './components/ErDiagramView';
 import QueriesPanel, { type QueriesPanelTab } from './components/QueriesPanel';
 import QueryTabView from './components/QueryTabView';
 import SaveQueryDialog from './components/SaveQueryDialog';
@@ -29,6 +36,7 @@ import { useCompletion } from './hooks/useCompletion';
 import { useConnections } from './hooks/useConnections';
 import { useExplorer } from './hooks/useExplorer';
 import { useSettings } from './hooks/useSettings';
+import { ThemeContext, useResolvedTheme } from './lib/theme';
 import {
   isDirty,
   useWorkspaceTabs,
@@ -42,6 +50,7 @@ type ConnectionDialogState =
 
 function App() {
   const { settings, updateSettings } = useSettings();
+  const theme = useResolvedTheme(settings.theme);
   const connections = useConnections();
   const explorer = useExplorer();
   const workspace = useWorkspaceTabs(settings);
@@ -55,6 +64,10 @@ function App() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
+  const [tableDesigner, setTableDesigner] = useState<{
+    connectionId: string;
+    schema: string;
+  } | null>(null);
   const [cursor, setCursor] = useState<CursorPosition>({ line: 1, column: 1 });
 
   const activeTab = workspace.tabs.find(
@@ -195,6 +208,24 @@ function App() {
     setQueriesPanel(null);
   };
 
+  /** Fonksiyon/prosedür tanımını yeni bir sorgu sekmesinde açar. */
+  const openRoutine = async (
+    connectionId: string,
+    schema: string,
+    routine: DatabaseRoutine,
+  ) => {
+    try {
+      const { definition } = await connectionsApi.getRoutineDefinition(
+        connectionId,
+        schema,
+        routine,
+      );
+      workspace.openQueryTab({ title: `${routine.name}.sql`, sql: definition, connectionId });
+    } catch (error) {
+      connections.setError(errorMessage(error, 'Routine definition could not be loaded.'));
+    }
+  };
+
   const needle = search.trim().toLowerCase();
   const filteredConnections = connections.connections.filter((item) =>
     item.name.toLowerCase().includes(needle),
@@ -206,12 +237,13 @@ function App() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-[#111318] text-[#d5d8df] overflow-hidden">
+    <ThemeContext.Provider value={theme}>
+    <div className="h-screen flex flex-col bg-(--c-111318) text-(--c-d5d8df) overflow-hidden">
       {/* Top bar */}
-      <header className="h-14 shrink-0 flex items-center justify-between px-4 border-b border-[#292d36] bg-[#171a21]">
+      <header className="h-14 shrink-0 flex items-center justify-between px-4 border-b border-(--c-292d36) bg-(--c-171a21)">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <Database size={19} className="text-white" />
+            <Database size={19} className="text-[white]" />
           </div>
 
           <div className="flex items-center gap-2">
@@ -219,18 +251,18 @@ function App() {
               Database Studio
             </span>
             {import.meta.env.DEV && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#292e39] text-gray-400">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-(--c-292e39) text-gray-400">
                 DEV
               </span>
             )}
           </div>
 
-          <div className="h-5 w-px bg-[#343946] mx-2" />
+          <div className="h-5 w-px bg-(--c-343946) mx-2" />
 
           <button
             type="button"
             onClick={() => setSidebarOpen((open) => !open)}
-            className="p-2 rounded-md hover:bg-[#292e39] text-gray-400"
+            className="p-2 rounded-md hover:bg-(--c-292e39) text-gray-400"
             title="Toggle sidebar"
           >
             {sidebarOpen ? (
@@ -251,7 +283,7 @@ function App() {
             type="button"
             onClick={() => setSettingsOpen(true)}
             title="Settings"
-            className="p-2 rounded-md hover:bg-[#292e39] text-gray-400"
+            className="p-2 rounded-md hover:bg-(--c-292e39) text-gray-400"
           >
             <Settings size={17} />
           </button>
@@ -261,7 +293,7 @@ function App() {
       <div className="flex flex-1 min-h-0">
         {/* Sidebar */}
         {sidebarOpen && (
-          <aside className="w-[280px] shrink-0 border-r border-[#292d36] bg-[#171a21] flex flex-col">
+          <aside className="w-[280px] shrink-0 border-r border-(--c-292d36) bg-(--c-171a21) flex flex-col">
             <div className="p-4 flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-500">
                 Database Explorer
@@ -269,7 +301,7 @@ function App() {
 
               <button
                 type="button"
-                className="p-1.5 rounded hover:bg-[#292e39] text-gray-400"
+                className="p-1.5 rounded hover:bg-(--c-292e39) text-gray-400"
                 title="Add connection"
                 onClick={() => setConnectionDialog({ mode: 'create' })}
               >
@@ -278,7 +310,7 @@ function App() {
             </div>
 
             <div className="px-3 pb-3">
-              <div className="flex items-center gap-2 px-2.5 h-9 rounded-md border border-[#303541] bg-[#111318]">
+              <div className="flex items-center gap-2 px-2.5 h-9 rounded-md border border-(--c-303541) bg-(--c-111318)">
                 <Search size={14} className="text-gray-500" />
                 <input
                   value={search}
@@ -328,6 +360,13 @@ function App() {
                 onTest={(connectionId) => void connections.testConnection(connectionId)}
                 onRefresh={handleExplorerRefresh}
                 onOpenTable={workspace.openTableTab}
+                onOpenErDiagram={workspace.openErTab}
+                onCreateTable={(connectionId, schema) =>
+                  setTableDesigner({ connectionId, schema })
+                }
+                onOpenRoutine={(connectionId, schema, routine) =>
+                  void openRoutine(connectionId, schema, routine)
+                }
               />
 
               {connections.loading && (
@@ -343,11 +382,11 @@ function App() {
               )}
             </div>
 
-            <div className="border-t border-[#292d36] p-3 space-y-1">
+            <div className="border-t border-(--c-292d36) p-3 space-y-1">
               <button
                 type="button"
                 onClick={() => setQueriesPanel('history')}
-                className="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-[#252a34] text-gray-400"
+                className="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-(--c-252a34) text-gray-400"
               >
                 <History size={15} />
                 <span className="text-xs">Query History & Saved</span>
@@ -356,7 +395,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setSettingsOpen(true)}
-                className="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-[#252a34] text-gray-400"
+                className="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-(--c-252a34) text-gray-400"
               >
                 <Settings size={15} />
                 <span className="text-xs">Settings</span>
@@ -393,11 +432,23 @@ function App() {
                     }
                     onChange={(patch) => workspace.updateQueryTab(tab.id, patch)}
                     onRun={(sql) => void workspace.runQuery(tab.id, sql)}
+                    onExplain={(sql) => void workspace.explainQuery(tab.id, sql)}
                     onCancel={() => void workspace.cancelQuery(tab.id)}
                     onSave={() => void saveQuery(tab)}
                     onCursorChange={(position) => {
                       if (tab.id === workspace.activeTabId) setCursor(position);
                     }}
+                  />
+                ) : tab.kind === 'er' ? (
+                  <ErDiagramView
+                    connectionId={tab.connectionId}
+                    schema={tab.schema}
+                    connection={connections.connections.find(
+                      (item) => item.id === tab.connectionId,
+                    )}
+                    onOpenTable={(table, type) =>
+                      workspace.openTableTab(tab.connectionId, tab.schema, table, type)
+                    }
                   />
                 ) : (
                   <TableTabView
@@ -417,7 +468,7 @@ function App() {
       </div>
 
       {/* Bottom status bar */}
-      <footer className="h-7 shrink-0 flex items-center justify-between px-4 bg-[#171a21] border-t border-[#292d36] text-[10px] text-gray-500">
+      <footer className="h-7 shrink-0 flex items-center justify-between px-4 bg-(--c-171a21) border-t border-(--c-292d36) text-[10px] text-gray-500">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5">
             <Circle size={8} className="text-emerald-500 fill-emerald-500" />
@@ -480,6 +531,25 @@ function App() {
         />
       )}
 
+      {tableDesigner && (() => {
+        const target = connections.connections.find(
+          (item) => item.id === tableDesigner.connectionId,
+        );
+
+        return target ? (
+          <ColumnDesigner
+            mode="create-table"
+            databaseType={target.type}
+            schema={tableDesigner.schema}
+            onClose={() => setTableDesigner(null)}
+            onGenerate={(sql) => {
+              setTableDesigner(null);
+              workspace.openQueryTab({ sql, connectionId: target.id });
+            }}
+          />
+        ) : null;
+      })()}
+
       {saveDialogTab && (
         <SaveQueryDialog
           initialName={saveDialogTab.title.replace(/\.sql$/, '')}
@@ -488,6 +558,7 @@ function App() {
         />
       )}
     </div>
+    </ThemeContext.Provider>
   );
 }
 

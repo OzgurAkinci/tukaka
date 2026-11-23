@@ -184,7 +184,7 @@ export default function QueriesPanel({
       onClose={onClose}
       widthClass="max-w-[760px]"
     >
-      <div className="flex h-11 items-center gap-5 border-b border-[#2b303b] px-5">
+      <div className="flex h-11 items-center gap-5 border-b border-(--c-2b303b) px-5">
         <button type="button" className={tabButton('history')} onClick={() => setTab('history')}>
           <History size={13} />
           History
@@ -195,8 +195,8 @@ export default function QueriesPanel({
         </button>
       </div>
 
-      <div className="flex items-center gap-3 border-b border-[#2b303b] px-5 py-3">
-        <div className="flex h-8 flex-1 items-center gap-2 rounded-md border border-[#303541] bg-[#111318] px-2.5">
+      <div className="flex items-center gap-3 border-b border-(--c-2b303b) px-5 py-3">
+        <div className="flex h-8 flex-1 items-center gap-2 rounded-md border border-(--c-303541) bg-(--c-111318) px-2.5">
           <Search size={13} className="text-gray-500" />
           <input
             aria-label="Search queries"
@@ -253,7 +253,7 @@ export default function QueriesPanel({
             {history.map((entry) => (
               <div
                 key={entry.id}
-                className="group flex gap-3 border-b border-[#252a33] px-5 py-3 hover:bg-[#202530]"
+                className="group flex gap-3 border-b border-(--c-252a33) px-5 py-3 hover:bg-(--c-202530)"
               >
                 <div className="pt-0.5">
                   {entry.status === 'success' ? (
@@ -307,7 +307,7 @@ export default function QueriesPanel({
             {visibleSaved.map((query) => (
               <div
                 key={query.id}
-                className="group flex gap-3 border-b border-[#252a33] px-5 py-3 hover:bg-[#202530]"
+                className="group flex gap-3 border-b border-(--c-252a33) px-5 py-3 hover:bg-(--c-202530)"
               >
                 <Bookmark size={13} className="mt-0.5 text-blue-400" />
 

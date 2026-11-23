@@ -104,10 +104,32 @@ export class DatabaseService
       .sort((a, b) => a.version - b.version);
 
     for (const migration of pending) {
-      this.database.transaction(() => {
-        this.database.exec(migration.up);
-        this.database.pragma(`user_version = ${migration.version}`);
-      })();
+      // PRAGMA foreign_keys transaction içinde değiştirilemez.
+      if (migration.disableForeignKeys) {
+        this.database.pragma('foreign_keys = OFF');
+      }
+
+      try {
+        this.database.transaction(() => {
+          this.database.exec(migration.up);
+
+          if (migration.disableForeignKeys) {
+            const violations = this.database.pragma('foreign_key_check') as unknown[];
+
+            if (violations.length > 0) {
+              throw new Error(
+                `Migration ${migration.version} left ${violations.length} foreign key violation(s).`,
+              );
+            }
+          }
+
+          this.database.pragma(`user_version = ${migration.version}`);
+        })();
+      } finally {
+        if (migration.disableForeignKeys) {
+          this.database.pragma('foreign_keys = ON');
+        }
+      }
 
       this.logger.log(
         `Applied migration ${migration.version}: ${migration.description}`,

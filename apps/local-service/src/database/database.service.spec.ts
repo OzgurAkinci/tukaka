@@ -70,3 +70,64 @@ describe('DatabaseService migrations', () => {
     service.onModuleDestroy();
   });
 });
+
+describe('Migration 3 (connection type constraint)', () => {
+  let directory: string;
+  const originalDataDir = process.env.TUKAKA_DATA_DIR;
+
+  beforeEach(() => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tukaka-db3-'));
+    process.env.TUKAKA_DATA_DIR = directory;
+  });
+
+  afterEach(() => {
+    process.env.TUKAKA_DATA_DIR = originalDataDir;
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('keeps history links when rebuilding connection_profiles', () => {
+    // v2 veritabanı: bağlantı + ona bağlı geçmiş kaydı.
+    const legacy = new Database(path.join(directory, 'studio.sqlite'));
+    legacy.pragma('foreign_keys = ON');
+    legacy.exec(migrations[0].up);
+    legacy.exec(migrations[1].up);
+    legacy.pragma('user_version = 2');
+    legacy
+      .prepare(
+        "INSERT INTO connection_profiles (id, name, type, database) VALUES ('c1', 'PG', 'postgresql', 'db')",
+      )
+      .run();
+    legacy
+      .prepare(
+        "INSERT INTO query_history (connection_id, connection_name, sql, status) VALUES ('c1', 'PG', 'SELECT 1', 'success')",
+      )
+      .run();
+    legacy.close();
+
+    const service = new DatabaseService();
+    service.onModuleInit();
+    const db = service.getDatabase();
+
+    expect(db.prepare('SELECT connection_id FROM query_history').get()).toEqual({
+      connection_id: 'c1',
+    });
+    expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
+
+    // Yeni tipler artık kabul edilir.
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO connection_profiles (id, name, type, database) VALUES ('c2', 'CH', 'clickhouse', 'default')",
+        )
+        .run(),
+    ).not.toThrow();
+
+    // Silme hâlâ geçmişi koruyarak bağlantıyı ayırır (FK çalışıyor).
+    db.prepare("DELETE FROM connection_profiles WHERE id = 'c1'").run();
+    expect(db.prepare('SELECT connection_id FROM query_history').get()).toEqual({
+      connection_id: null,
+    });
+
+    service.onModuleDestroy();
+  });
+});

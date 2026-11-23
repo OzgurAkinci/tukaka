@@ -2,17 +2,60 @@
 import type {
   ConnectionProfile,
   DatabaseColumn,
+  DatabaseForeignKey,
+  DatabaseIndex,
+  DatabaseRoutine,
   DatabaseSchema,
   DatabaseTable,
+  ErTable,
+  ExplainPlanNode,
   QueryResult,
 } from '@tukaka/contracts';
 
 export type {
   DatabaseColumn,
+  DatabaseForeignKey,
+  DatabaseIndex,
+  DatabaseRoutine,
   DatabaseSchema,
   DatabaseTable,
+  ErTable,
+  ExplainPlanNode,
   QueryResult,
 } from '@tukaka/contracts';
+
+/** Transaction içinde çalıştırılacak parametreli ifade. */
+export interface ParameterizedStatement {
+  sql: string;
+  parameters: unknown[];
+  /**
+   * Verilirse, ifade tam olarak bu kadar satırı etkilemelidir; aksi halde
+   * transaction geri alınır (ör. birincil anahtarla güncelleme = 1 satır).
+   */
+  expectedRows?: number;
+}
+
+/** expectedRows denetimi; tüm sürücüler transaction içinde çağırır. */
+export function assertAffectedRows(
+  statement: ParameterizedStatement,
+  affected: number,
+  index: number,
+): void {
+  if (statement.expectedRows !== undefined && affected !== statement.expectedRows) {
+    throw new Error(
+      `Statement ${index + 1} affected ${affected} row(s) instead of ${statement.expectedRows}. ` +
+        'The row may have been changed or deleted by someone else. No changes were saved.',
+    );
+  }
+}
+
+export interface ExplainResult {
+  nodes: ExplainPlanNode[];
+  raw: string;
+}
+
+/** ER diyagramı ve şema geneli işlemler için kolon satırı. */
+export type SchemaColumnRow = ErTable['columns'][number] & { table: string };
 
 export interface QueryOptions {
   /**
@@ -53,6 +96,12 @@ export interface SqlDialect {
   castToText: (expression: string) => string;
   /** Büyük/küçük harf duyarsız LIKE operatörü. */
   caseInsensitiveLike: string;
+  /** Önizleme için değeri SQL sabitine çevirir (çalıştırmada kullanılmaz). */
+  formatLiteral: (value: unknown) => string;
+  /** Hiç kolon verilmeden satır ekleme sözdizimi. */
+  insertDefaultValues: (tableRef: string) => string;
+  /** Sayfalama: LIMIT/OFFSET ya da OFFSET/FETCH. */
+  paginate: (limit: number, offset: number, hasOrderBy: boolean) => string;
 }
 
 export interface DatabaseDriver {
@@ -115,6 +164,72 @@ export interface DatabaseDriver {
     password: string | null,
     maxColumns: number,
   ): Promise<CompletionData>;
+
+  /** Tablonun indeksleri. */
+  getIndexes(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    table: string,
+  ): Promise<DatabaseIndex[]>;
+
+  /** Şemadaki (ya da yalnızca verilen tablodaki) yabancı anahtarlar. */
+  getForeignKeys(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    table?: string,
+  ): Promise<DatabaseForeignKey[]>;
+
+  /** Şemadaki tüm tabloların kolonları (ER diyagramı için). */
+  getSchemaColumns(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+  ): Promise<SchemaColumnRow[]>;
+
+  /** Tablo ya da view için CREATE ifadesi (üretilemiyorsa null). */
+  getTableDdl(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    table: string,
+  ): Promise<string | null>;
+
+  /** Şemadaki fonksiyon ve prosedürler. */
+  getRoutines(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+  ): Promise<DatabaseRoutine[]>;
+
+  /** Fonksiyon/prosedür tanımı. */
+  getRoutineDefinition(
+    connection: ConnectionProfile,
+    password: string | null,
+    schema: string,
+    routine: Pick<DatabaseRoutine, 'id' | 'name' | 'type'>,
+  ): Promise<string>;
+
+  /**
+   * Sorgu planını getirir. Sorgu ÇALIŞTIRILMAZ (ANALYZE yok) ve yalnızca tek
+   * ifadeye izin verilir.
+   */
+  explain(
+    connection: ConnectionProfile,
+    password: string | null,
+    sql: string,
+  ): Promise<ExplainResult>;
+
+  /**
+   * İfadeleri tek transaction içinde çalıştırır; ifade başına etkilenen satır
+   * sayısını döndürür. Hata olursa tümü geri alınır.
+   */
+  executeInTransaction(
+    connection: ConnectionProfile,
+    password: string | null,
+    statements: ParameterizedStatement[],
+  ): Promise<number[]>;
 
   /**
    * Bağlantıya ait havuzu / açık handle'ı kapatır.

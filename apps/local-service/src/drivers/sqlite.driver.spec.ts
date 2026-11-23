@@ -184,6 +184,81 @@ describe('SqliteDriver', () => {
     );
   });
 
+  it('reports indexes, foreign keys and DDL', async () => {
+    await driver.executeQuery(
+      profile,
+      null,
+      'CREATE UNIQUE INDEX users_name_idx ON users(name)',
+      [],
+      options,
+    );
+
+    const indexes = await driver.getIndexes(profile, null, 'main', 'users');
+    expect(indexes).toEqual([
+      { name: 'PRIMARY KEY', columns: ['id'], unique: true, primary: true },
+      { name: 'users_name_idx', columns: ['name'], unique: true, primary: false },
+    ]);
+
+    expect(await driver.getForeignKeys(profile, null, 'main')).toEqual([
+      {
+        name: 'fk_posts_0',
+        table: 'posts',
+        columns: ['user_id'],
+        referencedSchema: 'main',
+        referencedTable: 'users',
+        referencedColumns: ['id'],
+      },
+    ]);
+
+    const ddl = await driver.getTableDdl(profile, null, 'main', 'users');
+    expect(ddl).toContain('CREATE TABLE users');
+    expect(ddl).toContain('CREATE UNIQUE INDEX users_name_idx');
+    expect(await driver.getTableDdl(profile, null, 'main', 'missing')).toBeNull();
+
+    const columns = await driver.getSchemaColumns(profile, null, 'main');
+    expect(columns.filter((c) => c.table === 'posts').map((c) => c.name)).toEqual([
+      'id',
+      'user_id',
+      'title',
+    ]);
+  });
+
+  it('explains a query as a tree without running it', async () => {
+    const plan = await driver.explain(
+      profile,
+      null,
+      'SELECT * FROM posts p JOIN users u ON u.id = p.user_id WHERE u.name = 1;',
+    );
+
+    expect(plan.nodes.length).toBeGreaterThan(0);
+    expect(JSON.stringify(plan.nodes)).toMatch(/SCAN|SEARCH/);
+
+    await expect(
+      driver.explain(profile, null, 'SELECT 1; DELETE FROM users'),
+    ).rejects.toThrow(/more than one statement/);
+
+    const count = await driver.executeQuery(profile, null, 'SELECT COUNT(*) AS n FROM users', [], options);
+    expect(count.rows[0]).toEqual({ n: 25 });
+  });
+
+  it('rolls back a transaction when a row count check fails', async () => {
+    await expect(
+      driver.executeInTransaction(profile, null, [
+        { sql: "UPDATE users SET name = 'changed' WHERE id = ?", parameters: [1], expectedRows: 1 },
+        { sql: 'DELETE FROM users WHERE id = ?', parameters: [9999], expectedRows: 1 },
+      ]),
+    ).rejects.toThrow(/affected 0 row/);
+
+    const row = await driver.executeQuery(profile, null, 'SELECT name FROM users WHERE id = 1', [], options);
+    expect(row.rows[0]).toEqual({ name: 'user 1' });
+
+    await expect(
+      driver.executeInTransaction(profile, null, [
+        { sql: "UPDATE users SET name = 'changed' WHERE id = ?", parameters: [1], expectedRows: 1 },
+      ]),
+    ).resolves.toEqual([1]);
+  });
+
   it('fails for a missing database file', async () => {
     await expect(
       driver.testConnection(

@@ -29,7 +29,7 @@ export class TableDataService {
     dto: TableDataDto,
   ): Promise<TableDataResponse> {
     const { connection, password, driver } =
-      this.contextService.resolve(connectionId);
+      await this.contextService.resolve(connectionId);
 
     const limit = dto.limit ?? DEFAULT_PAGE_SIZE;
     const offset = dto.offset ?? 0;

@@ -1,0 +1,95 @@
+/*
+ * Otomatik üretildi (renkler → CSS değişkenleri). Koyu tema orijinal renkleri
+ * kullanır; açık temada her rengin parlaklığı ters çevrilir.
+ */
+:root {
+  --c-0d0f13: #0d0f13;
+  --c-111318: #111318;
+  --c-14171d: #14171d;
+  --c-151820: #151820;
+  --c-171a21: #171a21;
+  --c-171b24: #171b24;
+  --c-1a1e27: #1a1e27;
+  --c-1b1f28: #1b1f28;
+  --c-1c2029: #1c2029;
+  --c-1f2b3d: #1f2b3d;
+  --c-202530: #202530;
+  --c-252a33: #252a33;
+  --c-252a34: #252a34;
+  --c-252b36: #252b36;
+  --c-264f78: #264f78;
+  --c-292d36: #292d36;
+  --c-292e39: #292e39;
+  --c-2a2140: #2a2140;
+  --c-2b303b: #2b303b;
+  --c-303541: #303541;
+  --c-303746: #303746;
+  --c-334155: #334155;
+  --c-343946: #343946;
+  --c-343a46: #343a46;
+  --c-4b5563: #4b5563;
+  --c-596273: #596273;
+  --c-60a5fa: #60a5fa;
+  --c-626b7a: #626b7a;
+  --c-6b7280: #6b7280;
+  --c-737d8d: #737d8d;
+  --c-858d9b: #858d9b;
+  --c-9ca3af: #9ca3af;
+  --c-a78bfa: #a78bfa;
+  --c-aab1bd: #aab1bd;
+  --c-c4b5fd: #c4b5fd;
+  --c-d1d5db: #d1d5db;
+  --c-d5d8df: #d5d8df;
+  --c-e5e7eb: #e5e7eb;
+  --c-f3f4f6: #f3f4f6;
+  --c-fbbf24: #fbbf24;
+  --c-fde68a: #fde68a;
+  --c-active-line: #ffffff08;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --c-0d0f13: #eceef2;
+  --c-111318: #e8e9ed;
+  --c-14171d: #e3e5ea;
+  --c-151820: #e0e2e9;
+  --c-171a21: #dfe1e7;
+  --c-171b24: #dcdfe7;
+  --c-1a1e27: #d9dce4;
+  --c-1b1f28: #d8dbe3;
+  --c-1c2029: #d7dae2;
+  --c-1f2b3d: #c4cede;
+  --c-202530: #d0d4de;
+  --c-252a33: #cdd1d9;
+  --c-252a34: #ccd0d9;
+  --c-252b36: #cacfd9;
+  --c-264f78: #8db0d3;
+  --c-292d36: #cacdd5;
+  --c-292e39: #c7cbd5;
+  --c-2a2140: #c9c1dc;
+  --c-2b303b: #c5c9d3;
+  --c-303541: #bfc4ce;
+  --c-303746: #bbc1cd;
+  --c-334155: #adb8c9;
+  --c-343946: #babfca;
+  --c-343a46: #babfca;
+  --c-4b5563: #9ea6b2;
+  --c-596273: #8e96a4;
+  --c-60a5fa: #114b93;
+  --c-626b7a: #878e9b;
+  --c-6b7280: #818792;
+  --c-737d8d: #747c8a;
+  --c-858d9b: #666c78;
+  --c-9ca3af: #515762;
+  --c-a78bfa: #250d6c;
+  --c-aab1bd: #434954;
+  --c-c4b5fd: #140745;
+  --c-d1d5db: #25282d;
+  --c-d5d8df: #212329;
+  --c-e5e7eb: #14161a;
+  --c-f3f4f6: #121417;
+  --c-fbbf24: #cb9814;
+  --c-fde68a: #6c590b;
+  --c-active-line: #0000000a;
+  color-scheme: light;
+}

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Eraser,
+  GitBranch,
   Loader2,
   Play,
   RefreshCw,
@@ -17,6 +18,8 @@ import type {
 } from '@tukaka/contracts';
 
 import { isDirty, type QueryTab } from '../hooks/useWorkspaceTabs';
+import { databases } from '../lib/databases';
+import ExplainPlanView from './ExplainPlanView';
 import ExportMenu from './ExportMenu';
 import ResultGrid from './ResultGrid';
 import SqlEditor, { type CursorPosition } from './SqlEditor';
@@ -27,6 +30,7 @@ interface QueryTabViewProps {
   completion: CompletionMetadata | null;
   onChange: (patch: Partial<QueryTab>) => void;
   onRun: (sql?: string) => void;
+  onExplain: (sql?: string) => void;
   onCancel: () => void;
   onSave: () => void;
   onCursorChange: (position: CursorPosition) => void;
@@ -38,6 +42,7 @@ export default function QueryTabView({
   completion,
   onChange,
   onRun,
+  onExplain,
   onCancel,
   onSave,
   onCursorChange,
@@ -55,10 +60,17 @@ export default function QueryTabView({
     [onRun],
   );
 
+  const handleEditorExplain = useCallback(
+    (selected: string | null) => onExplain(selected ?? undefined),
+    [onExplain],
+  );
+
+  const canCancel = connection ? databases[connection.type].supports.cancel : true;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Connection toolbar */}
-      <div className="h-12 shrink-0 flex items-center justify-between px-4 border-b border-[#292d36] bg-[#14171d]">
+      <div className="h-12 shrink-0 flex items-center justify-between px-4 border-b border-(--c-292d36) bg-(--c-14171d)">
         <div className="flex items-center gap-2">
           <select
             value={tab.connectionId ?? ''}
@@ -66,7 +78,7 @@ export default function QueryTabView({
               onChange({ connectionId: event.target.value || null })
             }
             aria-label="Connection"
-            className="px-3 py-1.5 rounded border border-[#303541] bg-[#1c2029] text-xs text-gray-200 outline-none"
+            className="px-3 py-1.5 rounded border border-(--c-303541) bg-(--c-1c2029) text-xs text-gray-200 outline-none"
           >
             <option value="">Select connection</option>
             {connections.map((item) => (
@@ -92,13 +104,9 @@ export default function QueryTabView({
             <button
               type="button"
               onClick={onCancel}
-              disabled={connection?.type === 'sqlite'}
-              title={
-                connection?.type === 'sqlite'
-                  ? 'SQLite queries cannot be cancelled'
-                  : 'Cancel query'
-              }
-              className="flex items-center gap-2 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-medium"
+              disabled={!canCancel}
+              title={canCancel ? 'Cancel query' : 'Queries on this database cannot be cancelled'}
+              className="flex items-center gap-2 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 disabled:opacity-50 text-[white] text-xs font-medium"
             >
               <Square size={11} fill="currentColor" />
               Cancel
@@ -107,7 +115,7 @@ export default function QueryTabView({
             <button
               type="button"
               onClick={() => onRun()}
-              className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
+              className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-[white] text-xs font-medium"
             >
               <Play size={13} fill="currentColor" />
               Run
@@ -116,8 +124,23 @@ export default function QueryTabView({
 
           <button
             type="button"
+            onClick={() => onExplain()}
+            disabled={tab.explaining}
+            title="Explain query plan (⌘/Ctrl + Shift + Enter)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-(--c-303541) text-xs text-gray-300 hover:bg-(--c-292e39) disabled:opacity-50"
+          >
+            {tab.explaining ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <GitBranch size={13} />
+            )}
+            Explain
+          </button>
+
+          <button
+            type="button"
             onClick={() => onChange({ sql: '' })}
-            className="p-2 rounded hover:bg-[#292e39] text-gray-400"
+            className="p-2 rounded hover:bg-(--c-292e39) text-gray-400"
             title="Clear editor"
           >
             <Eraser size={15} />
@@ -126,7 +149,7 @@ export default function QueryTabView({
           <button
             type="button"
             onClick={onSave}
-            className="relative p-2 rounded hover:bg-[#292e39] text-gray-400"
+            className="relative p-2 rounded hover:bg-(--c-292e39) text-gray-400"
             title={tab.savedQueryId ? 'Save (⌘/Ctrl + S)' : 'Save as… (⌘/Ctrl + S)'}
           >
             <Save size={15} />
@@ -138,26 +161,28 @@ export default function QueryTabView({
       </div>
 
       {/* SQL editor */}
-      <section className="flex-1 min-h-[180px] min-w-0 flex bg-[#111318]">
+      <section className="flex-1 min-h-[180px] min-w-0 flex bg-(--c-111318)">
         <SqlEditor
           value={tab.sql}
           onChange={handleSqlChange}
           databaseType={connection?.type ?? null}
           completion={completion}
           onRun={handleEditorRun}
+          onExplain={handleEditorExplain}
           onSave={onSave}
           onCursorChange={onCursorChange}
         />
       </section>
 
       {/* Results */}
-      <section className="h-[42%] min-h-[220px] flex flex-col border-t border-[#303541] bg-[#151820]">
-        <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-[#292d36]">
+      <section className="h-[42%] min-h-[220px] flex flex-col border-t border-(--c-303541) bg-(--c-151820)">
+        <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-(--c-292d36)">
           <div className="flex items-center h-full gap-5">
             {(
               [
                 ['results', 'Results', Table2],
                 ['messages', 'Messages', Terminal],
+                ['plan', 'Plan', GitBranch],
               ] as const
             ).map(([panel, label, Icon]) => (
               <button
@@ -199,10 +224,30 @@ export default function QueryTabView({
           </div>
         </div>
 
-        {tab.panel === 'results' ? (
+        {tab.panel === 'plan' ? (
+          <div className="relative flex-1 min-h-0">
+            {tab.explaining ? (
+              <div className="flex h-full items-center justify-center gap-2 text-xs text-gray-400">
+                <Loader2 size={14} className="animate-spin" />
+                Loading query plan…
+              </div>
+            ) : tab.planError ? (
+              <div className="p-4 text-xs text-red-400 whitespace-pre-wrap">
+                <div className="mb-2 font-semibold">Could not explain query</div>
+                {tab.planError}
+              </div>
+            ) : tab.plan ? (
+              <ExplainPlanView plan={tab.plan} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                Click Explain to see how the database would run this query.
+              </div>
+            )}
+          </div>
+        ) : tab.panel === 'results' ? (
           <div className="relative flex-1 overflow-auto">
             {tab.running && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#151820]/70 text-xs text-gray-400">
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-(--c-151820)/70 text-xs text-gray-400">
                 <Loader2 size={16} className="mr-2 animate-spin" />
                 Running query…
               </div>
@@ -279,7 +324,7 @@ export default function QueryTabView({
           </div>
         )}
 
-        <div className="h-8 shrink-0 px-4 flex items-center justify-between border-t border-[#292d36] text-[10px] text-gray-500">
+        <div className="h-8 shrink-0 px-4 flex items-center justify-between border-t border-(--c-292d36) text-[10px] text-gray-500">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
               {tab.running ? (

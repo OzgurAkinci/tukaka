@@ -4,6 +4,29 @@ import type { ConnectionProfile } from '@tukaka/contracts';
 import { errorMessage } from '../api/client';
 import { connectionsApi } from '../api/connections';
 import type { ConnectionConfig } from '../components/ConnectionDialog';
+import { databases } from '../lib/databases';
+
+/** Bağlantı ayarlarından API alanlarını üretir (sunucu tabanlı tipler için). */
+function serverFields(config: ConnectionConfig) {
+  if (!databases[config.type].server) return {};
+
+  return {
+    host: config.host,
+    port: config.port,
+    username: config.username,
+    sslMode: config.sslMode,
+    options: { ssh: config.ssh },
+  };
+}
+
+function credentialPayload(config: ConnectionConfig) {
+  const payload = {
+    ...(config.password && { password: config.password }),
+    ...(config.sshSecret && { sshSecret: config.sshSecret }),
+  };
+
+  return Object.keys(payload).length > 0 ? payload : null;
+}
 
 export interface ConnectionTestStatus {
   loading: boolean;
@@ -48,17 +71,14 @@ export function useConnections() {
       name: config.name,
       type: config.type,
       database: config.database,
-      ...(config.type !== 'sqlite' && {
-        host: config.host,
-        port: config.port,
-        username: config.username,
-        sslMode: config.sslMode,
-      }),
+      ...serverFields(config),
     });
 
-    if (config.password) {
+    const credential = credentialPayload(config);
+
+    if (credential) {
       try {
-        await connectionsApi.setCredential(saved.id, config.password);
+        await connectionsApi.setCredential(saved.id, credential);
       } catch (credentialError) {
         await connectionsApi.remove(saved.id);
         throw credentialError;
@@ -81,16 +101,13 @@ export function useConnections() {
       const updated = await connectionsApi.update(id, {
         name: config.name,
         database: config.database,
-        ...(config.type !== 'sqlite' && {
-          host: config.host,
-          port: config.port,
-          username: config.username,
-          sslMode: config.sslMode,
-        }),
+        ...serverFields(config),
       });
 
-      if (config.password) {
-        await connectionsApi.setCredential(id, config.password);
+      const credential = credentialPayload(config);
+
+      if (credential) {
+        await connectionsApi.setCredential(id, credential);
       }
 
       setConnections((previous) =>

@@ -50,7 +50,7 @@ export default function ExportMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-md border border-[#343a46] bg-[#1c2029] py-1 shadow-xl">
+        <div className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-md border border-(--c-343a46) bg-(--c-1c2029) py-1 shadow-xl">
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-gray-500">
             Export {rows.length} rows
           </div>
@@ -59,7 +59,7 @@ export default function ExportMenu({
               key={format}
               type="button"
               onClick={() => exportAs(format)}
-              className="block w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-[#292e39]"
+              className="block w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-(--c-292e39)"
             >
               {format === 'csv' ? 'CSV (.csv)' : 'JSON (.json)'}
             </button>

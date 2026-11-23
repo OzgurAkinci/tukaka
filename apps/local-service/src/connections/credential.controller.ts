@@ -34,7 +34,14 @@ export class CredentialController {
       );
     }
 
-    this.credentialService.savePassword(id, dto.password);
+    if (dto.password !== undefined) {
+      this.credentialService.savePassword(id, dto.password);
+    }
+
+    if (dto.sshSecret !== undefined) {
+      this.credentialService.saveSshSecret(id, dto.sshSecret);
+    }
+
     this.connectionEvents.invalidate(id);
 
     return {
@@ -47,6 +54,7 @@ export class CredentialController {
   deleteCredential(@Param('id', ParseUUIDPipe) id: string) {
     this.connectionsService.findOne(id);
     this.credentialService.deletePassword(id);
+    this.credentialService.deleteSshSecret(id);
     this.connectionEvents.invalidate(id);
 
     return {

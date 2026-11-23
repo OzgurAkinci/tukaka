@@ -1,6 +1,6 @@
 # TUKAKA Database Studio
 
-PostgreSQL, MySQL ve SQLite için masaüstü veritabanı istemcisi.
+PostgreSQL, MySQL, MariaDB, SQLite, SQL Server ve ClickHouse için masaüstü veritabanı istemcisi.
 
 | Klasör | İçerik |
 |---|---|
@@ -8,6 +8,31 @@ PostgreSQL, MySQL ve SQLite için masaüstü veritabanı istemcisi.
 | `apps/local-service` | Yerel API servisi (NestJS); bağlantılar, sorgular, geçmiş |
 | `apps/desktop` | Electron kabuğu ve paketleme |
 | `packages/contracts` | Arayüz ile servis arasında paylaşılan tipler |
+
+## Özellikler
+
+- **Bağlantılar:** SSL modları, SSH tüneli (şifre ya da özel anahtar; sunucu anahtarı ilk
+  bağlantıda sabitlenir), şifreler sistem anahtar zincirinde. SQLite için dosya seçici.
+- **SQL editörü:** sekmeler, bağlantıya göre sözdizimi, şema tabanlı otomatik tamamlama,
+  ⌘/Ctrl+Enter (seçim ya da tümü), ⌘/Ctrl+Shift+Enter ile EXPLAIN, iptal, satır limiti,
+  geçmiş ve kayıtlı sorgular, CSV/JSON dışa aktarma.
+- **Data Viewer:** sayfalama, sıralama, filtreler; satır ekleme/düzenleme/silme. Değişiklikler
+  SQL önizlemesiyle onaylanır ve tek transaction içinde uygulanır; birincil anahtarla
+  güncellenen/silinen her satır tam olarak 1 satırı etkilemelidir, aksi halde hepsi geri alınır.
+- **Yapı:** kolonlar, indeksler, yabancı anahtarlar, DDL; fonksiyon/prosedür tanımları;
+  tablo tasarımcısı (CREATE/ALTER SQL'i incelemek için editörde açılır, otomatik çalışmaz).
+- **Görselleştirme:** EXPLAIN plan ağacı (maliyet çubuklarıyla), ER diyagramı (SVG dışa aktarma).
+- **Tema:** koyu, açık ya da sistem.
+
+| Özellik | PostgreSQL | MySQL/MariaDB | SQLite | SQL Server | ClickHouse |
+|---|---|---|---|---|---|
+| Satır düzenleme | ✓ | ✓ | ✓ | ✓ | — (transaction yok) |
+| Sorgu iptali / zaman aşımı | ✓ | ✓ | — | ✓ | ✓ |
+| Fonksiyon/prosedürler | ✓ | ✓ | — | ✓ | — |
+| Yabancı anahtar / ER ilişkileri | ✓ | ✓ | ✓ | ✓ | — |
+
+> SQL Server ve ClickHouse sürücüleri birim testleriyle (ClickHouse için HTTP protokolü
+> taklidiyle) doğrulandı; gerçek sunucularla henüz test edilmedi.
 
 ## Geliştirme
 

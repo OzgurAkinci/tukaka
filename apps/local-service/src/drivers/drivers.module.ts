@@ -13,11 +13,14 @@ import { DatabaseExplorerService } from './database-explorer.service';
 import { DriverFactory } from './driver.factory';
 import { QueryCancelController } from './query-cancel.controller';
 import { RunningQueriesService } from './running-queries.service';
+import { SchemaObjectsService } from './schema-objects.service';
+import { SshController } from './ssh.controller';
+import { SshTunnelService } from './ssh-tunnel.service';
 import { TableDataService } from './table-data/table-data.service';
 
 @Module({
   imports: [ConnectionsModule, CredentialModule, QueriesModule],
-  controllers: [ConnectionTestController, QueryCancelController],
+  controllers: [ConnectionTestController, QueryCancelController, SshController],
   providers: [
     DriverFactory,
     ConnectionContextService,
@@ -25,6 +28,8 @@ import { TableDataService } from './table-data/table-data.service';
     ConnectionQueryService,
     DatabaseExplorerService,
     RunningQueriesService,
+    SchemaObjectsService,
+    SshTunnelService,
     TableDataService,
   ],
   exports: [

@@ -4,6 +4,8 @@ import { basicSetup } from 'codemirror';
 import { EditorView, keymap } from '@codemirror/view';
 import { Compartment, Prec } from '@codemirror/state';
 import {
+  MariaSQL,
+  MSSQL,
   MySQL,
   PostgreSQL,
   SQLite,
@@ -13,6 +15,8 @@ import {
 } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
 import type { CompletionMetadata, DatabaseType } from '@tukaka/contracts';
+
+import { useTheme, type ResolvedTheme } from '../lib/theme';
 
 export interface CursorPosition {
   line: number;
@@ -28,17 +32,22 @@ interface SqlEditorProps {
   completion?: CompletionMetadata | null;
   /** Cmd/Ctrl+Enter: seçili metin varsa onu, yoksa tüm editörü çalıştırır. */
   onRun?: (selectedSql: string | null) => void;
+  /** Cmd/Ctrl+Shift+Enter: sorgu planı (EXPLAIN). */
+  onExplain?: (selectedSql: string | null) => void;
   /** Cmd/Ctrl+S. */
   onSave?: () => void;
   onCursorChange?: (position: CursorPosition) => void;
   autoFocus?: boolean;
 }
 
-const dialects = {
+const dialects: Record<DatabaseType, typeof StandardSQL> = {
   postgresql: PostgreSQL,
   mysql: MySQL,
+  mariadb: MariaSQL,
   sqlite: SQLite,
-} as const;
+  mssql: MSSQL,
+  clickhouse: StandardSQL,
+};
 
 function languageExtension(
   databaseType: DatabaseType | null | undefined,
@@ -51,11 +60,11 @@ function languageExtension(
   });
 }
 
-const editorTheme = EditorView.theme({
+const editorThemeSpec = {
   '&': {
     height: '100%',
-    backgroundColor: '#111318',
-    color: '#d5d8df',
+    backgroundColor: 'var(--c-111318)',
+    color: 'var(--c-d5d8df)',
     fontSize: '13px',
   },
   '.cm-scroller': {
@@ -64,31 +73,37 @@ const editorTheme = EditorView.theme({
     lineHeight: '1.8',
   },
   '.cm-gutters': {
-    backgroundColor: '#111318',
-    color: '#626b7a',
+    backgroundColor: 'var(--c-111318)',
+    color: 'var(--c-626b7a)',
     border: 'none',
-    borderRight: '1px solid #252a33',
+    borderRight: '1px solid var(--c-252a33)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: '#202530',
+    backgroundColor: 'var(--c-202530)',
   },
   '.cm-activeLine': {
-    backgroundColor: '#ffffff08',
+    backgroundColor: 'var(--c-active-line)',
   },
   '.cm-cursor': {
-    borderLeftColor: '#60a5fa',
+    borderLeftColor: 'var(--c-60a5fa)',
   },
   '.cm-selectionBackground, ::selection': {
-    backgroundColor: '#264f78 !important',
+    backgroundColor: 'var(--c-264f78) !important',
   },
   '.cm-tooltip': {
-    backgroundColor: '#202530',
-    border: '1px solid #343a46',
+    backgroundColor: 'var(--c-202530)',
+    border: '1px solid var(--c-343a46)',
   },
   '.cm-tooltip-autocomplete ul li[aria-selected]': {
-    backgroundColor: '#334155',
+    backgroundColor: 'var(--c-334155)',
   },
-});
+};
+
+/** Koyu temada oneDark sözdizimi renkleri, açıkta CodeMirror varsayılanları. */
+function themeExtension(theme: ResolvedTheme) {
+  const base = EditorView.theme(editorThemeSpec, { dark: theme === 'dark' });
+  return theme === 'dark' ? [oneDark, base] : [base];
+}
 
 export default function SqlEditor({
   value,
@@ -96,6 +111,7 @@ export default function SqlEditor({
   databaseType,
   completion,
   onRun,
+  onExplain,
   onSave,
   onCursorChange,
   autoFocus,
@@ -103,20 +119,34 @@ export default function SqlEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment());
+  const themeCompartment = useRef(new Compartment());
+  const theme = useTheme();
 
   // Güncel callback'leri sakla (ref render sırasında değil, commit sonrası güncellenir).
-  const handlers = useRef({ onChange, onRun, onSave, onCursorChange });
+  const handlers = useRef({ onChange, onRun, onExplain, onSave, onCursorChange });
 
   useLayoutEffect(() => {
-    handlers.current = { onChange, onRun, onSave, onCursorChange };
-  }, [onChange, onRun, onSave, onCursorChange]);
+    handlers.current = { onChange, onRun, onExplain, onSave, onCursorChange };
+  }, [onChange, onRun, onExplain, onSave, onCursorChange]);
 
   // Editör örneğini yalnızca bir kez oluştur.
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const selectedText = (view: EditorView) => {
+      const selection = view.state.selection.main;
+      return selection.empty ? null : view.state.sliceDoc(selection.from, selection.to);
+    };
+
     const shortcuts = Prec.highest(
       keymap.of([
+        {
+          key: 'Mod-Shift-Enter',
+          run: (view) => {
+            handlers.current.onExplain?.(selectedText(view));
+            return true;
+          },
+        },
         {
           key: 'Mod-Enter',
           run: (view) => {
@@ -149,8 +179,7 @@ export default function SqlEditor({
         languageCompartment.current.of(
           languageExtension(databaseType, completion),
         ),
-        oneDark,
-        editorTheme,
+        themeCompartment.current.of(themeExtension(theme)),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
@@ -192,6 +221,12 @@ export default function SqlEditor({
       ),
     });
   }, [databaseType, completion]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: themeCompartment.current.reconfigure(themeExtension(theme)),
+    });
+  }, [theme]);
 
   // React tarafından gelen değişiklikleri editöre uygula.
   useEffect(() => {

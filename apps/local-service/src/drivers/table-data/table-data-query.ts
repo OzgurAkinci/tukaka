@@ -109,7 +109,7 @@ export function buildTableDataQuery(
   const offset = Math.max(0, Math.floor(input.offset));
 
   return {
-    dataSql: `SELECT * FROM ${tableRef}${where}${orderBy} LIMIT ${limit} OFFSET ${offset}`,
+    dataSql: `SELECT * FROM ${tableRef}${where}${orderBy}${dialect.paginate(limit, offset, Boolean(input.sort))}`,
     countSql: `SELECT COUNT(*) AS total FROM ${tableRef}${where}`,
     parameters,
   };

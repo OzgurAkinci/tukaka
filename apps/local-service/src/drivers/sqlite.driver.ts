@@ -6,16 +6,28 @@ import {
   CompletionData,
   DatabaseColumn,
   DatabaseDriver,
+  DatabaseForeignKey,
+  DatabaseIndex,
+  DatabaseRoutine,
+  ExplainPlanNode,
+  ExplainResult,
+  ParameterizedStatement,
+  SchemaColumnRow,
   DatabaseSchema,
   DatabaseTable,
   QueryOptions,
   QueryResult,
+  assertAffectedRows,
   groupCompletionRows,
 } from './database-driver.interface';
 import { sqliteDialect } from './sql-dialects';
 import { PoolRegistry } from './pool-registry';
 
-import { isBlankSql, splitSqlSegments } from './sql-splitter';
+import {
+  isBlankSql,
+  splitSqlSegments,
+  stripTrailingSemicolons,
+} from './sql-splitter';
 
 const MULTIPLE_STATEMENTS = /more than one statement/i;
 const INCOMPLETE_INPUT = /incomplete input/i;
@@ -396,6 +408,208 @@ export class SqliteDriver implements DatabaseDriver {
       defaultSchema: 'main',
       ...groupCompletionRows(rows, maxColumns),
     };
+  }
+
+  private listTables(db: Database.Database, schema: string): string[] {
+    return (
+      db
+        .prepare(
+          `SELECT name FROM ${this.dialect.quoteIdentifier(schema)}.sqlite_master
+           WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
+           ORDER BY name`,
+        )
+        .all() as Array<{ name: string }>
+    ).map((row) => row.name);
+  }
+
+  async getIndexes(
+    connection: ConnectionProfile,
+    _password: string | null,
+    schema: string,
+    table: string,
+  ): Promise<DatabaseIndex[]> {
+    const db = await this.getDatabase(connection);
+    const quote = this.dialect.quoteIdentifier;
+
+    const list = db
+      .prepare(`PRAGMA ${quote(schema)}.index_list(${quote(table)})`)
+      .all() as Array<{ name: string; unique: number; origin: string }>;
+
+    const indexes: DatabaseIndex[] = list.map((index) => ({
+      name: index.name,
+      unique: index.unique === 1,
+      primary: index.origin === 'pk',
+      columns: (
+        db
+          .prepare(`PRAGMA ${quote(schema)}.index_info(${quote(index.name)})`)
+          .all() as Array<{ name: string | null }>
+      ).map((column) => column.name ?? '(expression)'),
+    }));
+
+    // INTEGER PRIMARY KEY (rowid) için ayrı bir indeks kaydı yoktur.
+    if (!indexes.some((index) => index.primary)) {
+      const pkColumns = (
+        db
+          .prepare(`PRAGMA ${quote(schema)}.table_info(${quote(table)})`)
+          .all() as Array<{ name: string; pk: number }>
+      )
+        .filter((column) => column.pk > 0)
+        .sort((a, b) => a.pk - b.pk)
+        .map((column) => column.name);
+
+      if (pkColumns.length > 0) {
+        indexes.unshift({
+          name: 'PRIMARY KEY',
+          columns: pkColumns,
+          unique: true,
+          primary: true,
+        });
+      }
+    }
+
+    return indexes;
+  }
+
+  async getForeignKeys(
+    connection: ConnectionProfile,
+    _password: string | null,
+    schema: string,
+    table?: string,
+  ): Promise<DatabaseForeignKey[]> {
+    const db = await this.getDatabase(connection);
+    const quote = this.dialect.quoteIdentifier;
+    const tables = table ? [table] : this.listTables(db, schema);
+
+    return tables.flatMap((tableName) => {
+      const rows = db
+        .prepare(`PRAGMA ${quote(schema)}.foreign_key_list(${quote(tableName)})`)
+        .all() as Array<{ id: number; seq: number; table: string; from: string; to: string | null }>;
+
+      const keys = new Map<number, DatabaseForeignKey>();
+
+      for (const row of rows.sort((a, b) => a.id - b.id || a.seq - b.seq)) {
+        const key = keys.get(row.id) ?? {
+          name: `fk_${tableName}_${row.id}`,
+          table: tableName,
+          columns: [],
+          referencedSchema: schema,
+          referencedTable: row.table,
+          referencedColumns: [],
+        };
+
+        key.columns.push(row.from);
+        // `to` boşsa hedef tablonun birincil anahtarı kastedilir.
+        key.referencedColumns.push(row.to ?? '(primary key)');
+        keys.set(row.id, key);
+      }
+
+      return [...keys.values()];
+    });
+  }
+
+  async getSchemaColumns(
+    connection: ConnectionProfile,
+    _password: string | null,
+    schema: string,
+  ): Promise<SchemaColumnRow[]> {
+    const db = await this.getDatabase(connection);
+    const quote = this.dialect.quoteIdentifier;
+
+    return this.listTables(db, schema).flatMap((tableName) =>
+      (
+        db
+          .prepare(`PRAGMA ${quote(schema)}.table_info(${quote(tableName)})`)
+          .all() as Array<{ name: string; type: string; notnull: number; pk: number }>
+      ).map((column) => ({
+        table: tableName,
+        name: column.name,
+        dataType: column.type || 'BLOB',
+        nullable: column.notnull === 0 && column.pk === 0,
+        isPrimaryKey: column.pk > 0,
+        isForeignKey: false,
+      })),
+    );
+  }
+
+  async getTableDdl(
+    connection: ConnectionProfile,
+    _password: string | null,
+    schema: string,
+    table: string,
+  ): Promise<string | null> {
+    const db = await this.getDatabase(connection);
+
+    const rows = db
+      .prepare(
+        `SELECT type, sql FROM ${this.dialect.quoteIdentifier(schema)}.sqlite_master
+         WHERE tbl_name = ? AND sql IS NOT NULL
+         ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, name`,
+      )
+      .all(table) as Array<{ type: string; sql: string }>;
+
+    return rows.length > 0 ? rows.map((row) => `${row.sql};`).join('\n\n') : null;
+  }
+
+  async getRoutines(): Promise<DatabaseRoutine[]> {
+    // SQLite'ta kalıcı fonksiyon/prosedür yoktur.
+    return [];
+  }
+
+  async getRoutineDefinition(): Promise<string> {
+    throw new Error('SQLite does not support stored routines.');
+  }
+
+  async explain(
+    connection: ConnectionProfile,
+    _password: string | null,
+    sql: string,
+  ): Promise<ExplainResult> {
+    const db = await this.getDatabase(connection);
+
+    // prepare() tek ifadeye izin verir; ikinci bir ifade hata verir.
+    const rows = db
+      .prepare(`EXPLAIN QUERY PLAN ${stripTrailingSemicolons(sql)}`)
+      .all() as Array<{ id: number; parent: number; detail: string }>;
+
+    const nodes = new Map<number, ExplainPlanNode>();
+    const roots: ExplainPlanNode[] = [];
+
+    for (const row of rows) {
+      const node: ExplainPlanNode = {
+        id: String(row.id),
+        label: row.detail,
+        detail: null,
+        cost: null,
+        rows: null,
+        children: [],
+      };
+
+      nodes.set(row.id, node);
+      (nodes.get(row.parent)?.children ?? roots).push(node);
+    }
+
+    return {
+      nodes: roots,
+      raw: rows.map((row) => `${row.id}\t${row.parent}\t${row.detail}`).join('\n'),
+    };
+  }
+
+  async executeInTransaction(
+    connection: ConnectionProfile,
+    _password: string | null,
+    statements: ParameterizedStatement[],
+  ): Promise<number[]> {
+    const db = await this.getDatabase(connection);
+
+    return db.transaction(() =>
+      statements.map((statement, index) => {
+        const { changes } = db
+          .prepare(statement.sql)
+          .run(...(statement.parameters as any[]));
+        assertAffectedRows(statement, changes, index);
+        return changes;
+      }),
+    )();
   }
 
   release(connectionId: string): Promise<void> {

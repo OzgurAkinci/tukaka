@@ -21,7 +21,7 @@ export class DatabaseExplorerService {
 
   async getSchemas(connectionId: string) {
     const { connection, password, driver } =
-      this.contextService.resolve(connectionId);
+      await this.contextService.resolve(connectionId);
 
     const schemas = await this.run(connection.name, 'Schema retrieval', () =>
       driver.getSchemas(connection, password),
@@ -36,7 +36,7 @@ export class DatabaseExplorerService {
 
   async getTables(connectionId: string, schema: string) {
     const { connection, password, driver } =
-      this.contextService.resolve(connectionId);
+      await this.contextService.resolve(connectionId);
 
     const tables = await this.run(
       connection.name,
@@ -54,7 +54,7 @@ export class DatabaseExplorerService {
 
   async getColumns(connectionId: string, schema: string, table: string) {
     const { connection, password, driver } =
-      this.contextService.resolve(connectionId);
+      await this.contextService.resolve(connectionId);
 
     const columns = await this.run(
       connection.name,
@@ -73,7 +73,7 @@ export class DatabaseExplorerService {
 
   async getCompletion(connectionId: string): Promise<CompletionMetadata> {
     const { connection, password, driver } =
-      this.contextService.resolve(connectionId);
+      await this.contextService.resolve(connectionId);
 
     const data = await this.run(
       connection.name,

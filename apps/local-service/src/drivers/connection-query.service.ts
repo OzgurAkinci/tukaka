@@ -23,7 +23,7 @@ export class ConnectionQueryService {
     dto: ExecuteQueryDto,
   ): Promise<ExecuteQueryResponse> {
     const { connection, password, driver } =
-      this.contextService.resolve(connectionId);
+      await this.contextService.resolve(connectionId);
 
     const handle = dto.queryId
       ? this.runningQueries.start(

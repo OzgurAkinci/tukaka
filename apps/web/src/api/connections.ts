@@ -1,5 +1,14 @@
 import type {
   ApiMessage,
+  ApplyChangesPayload,
+  ApplyChangesResponse,
+  ErDiagramResponse,
+  ExplainResponse,
+  RoutineDefinitionResponse,
+  RoutinesResponse,
+  SetCredentialPayload,
+  TableDetailsResponse,
+  DatabaseRoutine,
   ColumnsResponse,
   CompletionMetadata,
   ConnectionProfile,
@@ -38,10 +47,10 @@ export const connectionsApi = {
   remove: (id: string) =>
     request<ApiMessage>(`/connections/${id}`, { method: 'DELETE' }),
 
-  setCredential: (id: string, password: string) =>
+  setCredential: (id: string, payload: SetCredentialPayload) =>
     request<ApiMessage>(`/connections/${id}/credential`, {
       method: 'POST',
-      ...jsonBody({ password }),
+      ...jsonBody(payload),
     }),
 
   deleteCredential: (id: string) =>
@@ -72,6 +81,49 @@ export const connectionsApi = {
     request<TableDataResponse>(
       `/connections/${id}/schemas/${enc(schema)}/tables/${enc(table)}/data`,
       { method: 'POST', ...jsonBody(payload) },
+    ),
+
+  getTableDetails: (id: string, schema: string, table: string) =>
+    request<TableDetailsResponse>(
+      `/connections/${id}/schemas/${enc(schema)}/tables/${enc(table)}/details`,
+    ),
+
+  applyChanges: (
+    id: string,
+    schema: string,
+    table: string,
+    payload: ApplyChangesPayload,
+  ) =>
+    request<ApplyChangesResponse>(
+      `/connections/${id}/schemas/${enc(schema)}/tables/${enc(table)}/changes`,
+      { method: 'POST', ...jsonBody(payload) },
+    ),
+
+  getRoutines: (id: string, schema: string) =>
+    request<RoutinesResponse>(`/connections/${id}/schemas/${enc(schema)}/routines`),
+
+  getRoutineDefinition: (
+    id: string,
+    schema: string,
+    routine: Pick<DatabaseRoutine, 'id' | 'name' | 'type'>,
+  ) =>
+    request<RoutineDefinitionResponse>(
+      `/connections/${id}/schemas/${enc(schema)}/routines/${enc(routine.id)}/definition?name=${enc(routine.name)}&type=${routine.type}`,
+    ),
+
+  getErDiagram: (id: string, schema: string) =>
+    request<ErDiagramResponse>(`/connections/${id}/schemas/${enc(schema)}/er`),
+
+  explain: (id: string, sql: string) =>
+    request<ExplainResponse>(`/connections/${id}/explain`, {
+      method: 'POST',
+      ...jsonBody({ sql }),
+    }),
+
+  forgetSshHostKey: (host: string, port: number) =>
+    request<ApiMessage>(
+      `/ssh/known-hosts?host=${enc(host)}&port=${port}`,
+      { method: 'DELETE' },
     ),
 
   getCompletion: (id: string) =>

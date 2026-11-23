@@ -28,12 +28,14 @@ export default function SettingsDialog({
     String(settings.timeoutSeconds),
   );
   const [pageSize, setPageSize] = useState(String(settings.pageSize));
+  const [theme, setTheme] = useState(settings.theme);
 
   const submit = () => {
     onSave({
       maxRows: clamp(Number(maxRows), 1, 100_000),
       timeoutSeconds: clamp(Number(timeoutSeconds), 1, 600),
       pageSize: clamp(Number(pageSize), 1, 10_000),
+      theme,
     });
   };
 
@@ -63,6 +65,34 @@ export default function SettingsDialog({
         }}
       >
         <div>
+          <span className={labelClass}>Theme</span>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
+            {(
+              [
+                ['dark', 'Dark'],
+                ['light', 'Light'],
+                ['system', 'System'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={theme === value}
+                onClick={() => setTheme(value)}
+                className={`rounded-md border px-3 py-2 text-sm transition ${
+                  theme === value
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                    : 'border-(--c-343a46) bg-(--c-171b24) text-gray-400 hover:border-(--c-596273)'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
           <label className={labelClass} htmlFor="setting-max-rows">
             Query result row limit
           </label>
@@ -75,7 +105,7 @@ export default function SettingsDialog({
             onChange={(event) => setMaxRows(event.target.value)}
             className={inputClass}
           />
-          <p className="mt-1.5 text-[11px] text-[#737d8d]">
+          <p className="mt-1.5 text-[11px] text-(--c-737d8d)">
             Results from the SQL editor are cut off after this many rows (1–100,000).
           </p>
         </div>
@@ -93,7 +123,7 @@ export default function SettingsDialog({
             onChange={(event) => setTimeoutSeconds(event.target.value)}
             className={inputClass}
           />
-          <p className="mt-1.5 text-[11px] text-[#737d8d]">
+          <p className="mt-1.5 text-[11px] text-(--c-737d8d)">
             PostgreSQL and MySQL only (1–600). SQLite queries cannot be interrupted.
           </p>
         </div>
