@@ -1,15 +1,18 @@
 
 const { contextBridge } = require('electron');
 
-const TOKEN_ARG_PREFIX = '--tukaka-session-token=';
+function readArgument(name) {
+  const prefix = `--${name}=`;
+  const value = process.argv
+    .find((arg) => arg.startsWith(prefix))
+    ?.slice(prefix.length);
 
-const sessionToken =
-  process.argv
-    .find((arg) => arg.startsWith(TOKEN_ARG_PREFIX))
-    ?.slice(TOKEN_ARG_PREFIX.length) ?? null;
+  return value && value !== 'null' ? value : null;
+}
 
 contextBridge.exposeInMainWorld('desktopAPI', {
   isDesktop: true,
   platform: process.platform,
-  sessionToken,
+  sessionToken: readArgument('tukaka-session-token'),
+  serviceUrl: readArgument('tukaka-service-url'),
 });

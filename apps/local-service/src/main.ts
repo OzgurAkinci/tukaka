@@ -1,7 +1,20 @@
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { AddressInfo } from 'node:net';
+
 import { AppModule } from './app.module';
+
+/**
+ * Electron `utilityProcess` içinde çalışırken ana süreçle mesajlaşma kanalı.
+ * Normal Node.js altında tanımsızdır.
+ */
+interface ParentPort {
+  postMessage(message: unknown): void;
+}
+
+const parentPort = (process as unknown as { parentPort?: ParentPort })
+  .parentPort;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -44,16 +57,26 @@ async function bootstrap() {
     }),
   );
 
-  const port = Number(process.env.LOCAL_SERVICE_PORT ?? 4317);
+  // 0 verilirse işletim sistemi boş bir port seçer (paketlenmiş uygulama).
+  const requestedPort = Number(process.env.LOCAL_SERVICE_PORT ?? 4317);
 
-  await app.listen(port, '127.0.0.1');
+  await app.listen(requestedPort, '127.0.0.1');
 
-  console.log(
-    `TUKAKA Local Service running at http://127.0.0.1:${port}`,
-  );
+  const { port } = app.getHttpServer().address() as AddressInfo;
+
+  console.log(`TUKAKA Local Service running at http://127.0.0.1:${port}`);
+
+  // Electron ana sürecine hazır olduğunu ve gerçek portu bildir.
+  parentPort?.postMessage({ type: 'ready', port });
 }
 
 bootstrap().catch((error: unknown) => {
   console.error('TUKAKA Local Service failed to start:', error);
+
+  parentPort?.postMessage({
+    type: 'error',
+    message: error instanceof Error ? error.message : String(error),
+  });
+
   process.exit(1);
 });

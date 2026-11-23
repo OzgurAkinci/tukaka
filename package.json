@@ -9,13 +9,16 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "dev:desktop": "concurrently -k \"pnpm --filter web dev -- --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron apps/desktop\""
+    "dev:desktop": "concurrently -k \"pnpm --filter web dev -- --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron apps/desktop\"",
+    "package:desktop": "node apps/desktop/scripts/package.mjs",
+    "package:desktop:dir": "node apps/desktop/scripts/package.mjs --dir"
   },
   "devDependencies": {
     "concurrently": "^10.0.7",
     "cross-env": "^10.1.0",
     "electron": "^45.3.1",
     "electron-builder": "^26.18.0",
+    "rolldown": "1.2.19",
     "turbo": "^2.0.0",
     "typescript": "^5.0.0",
     "wait-on": "^9.5.1"

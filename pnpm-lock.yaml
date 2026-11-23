@@ -20,6 +20,9 @@ importers:
       electron-builder:
         specifier: ^26.18.0
         version: 26.18.0(electron-builder-squirrel-windows@26.18.0)
+      rolldown:
+        specifier: 1.2.19
+        version: 1.2.19
       turbo:
         specifier: ^2.0.0
         version: 2.11.11

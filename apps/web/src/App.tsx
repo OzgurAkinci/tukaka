@@ -218,9 +218,11 @@ function App() {
             <span className="font-semibold text-sm tracking-wide text-white">
               Database Studio
             </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#292e39] text-gray-400">
-              DEV
-            </span>
+            {import.meta.env.DEV && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#292e39] text-gray-400">
+                DEV
+              </span>
+            )}
           </div>
 
           <div className="h-5 w-px bg-[#343946] mx-2" />
@@ -430,10 +432,12 @@ function App() {
         </div>
         <div className="flex items-center gap-4">
           <span>Limit {settings.maxRows.toLocaleString()} rows</span>
-          <span className="flex items-center gap-1">
-            <Zap size={11} />
-            Development
-          </span>
+          {import.meta.env.DEV && (
+            <span className="flex items-center gap-1">
+              <Zap size={11} />
+              Development
+            </span>
+          )}
           {activeTab?.kind === 'query' && (
             <span>
               Ln {cursor.line}, Col {cursor.column}

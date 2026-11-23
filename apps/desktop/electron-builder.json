@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.tukaka.databasestudio",
+  "productName": "TUKAKA Database Studio",
+  "copyright": "Copyright © TUKAKA",
+  "directories": {
+    "app": "build/app",
+    "output": "release",
+    "buildResources": "build-resources"
+  },
+  "files": [
+    "**/*"
+  ],
+  "asar": true,
+  "asarUnpack": [
+    "**/*.node"
+  ],
+  "npmRebuild": false,
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "target": [
+      "dmg",
+      "zip"
+    ],
+    "identity": "-",
+    "hardenedRuntime": false
+  },
+  "dmg": {
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "win": {
+    "target": [
+      "nsis"
+    ],
+    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true
+  },
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "category": "Development"
+  }
+}

@@ -1,5 +1,11 @@
+/**
+ * Paketlenmiş masaüstü uygulamasında servis boş bir portta çalışır ve adresi
+ * preload üzerinden gelir; geliştirmede sabit adres kullanılır.
+ */
 const API_BASE_URL =
-  import.meta.env.VITE_LOCAL_SERVICE_URL ?? 'http://127.0.0.1:4317';
+  window.desktopAPI?.serviceUrl ??
+  import.meta.env.VITE_LOCAL_SERVICE_URL ??
+  'http://127.0.0.1:4317';
 
 /**
  * NestJS hata gövdesinden ({ message, error, statusCode }) okunabilir mesaj çıkarır.
