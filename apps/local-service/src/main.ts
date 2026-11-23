@@ -9,9 +9,15 @@ async function bootstrap() {
   // Servis kapanırken açık veritabanı havuzlarını düzgünce kapat.
   app.enableShutdownHooks();
 
+  // Ek geliştirme origin'leri virgülle ayrılarak verilebilir
+  // (ör. TUKAKA_ALLOWED_ORIGINS=http://127.0.0.1:5273).
   const allowedOrigins = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    ...(process.env.TUKAKA_ALLOWED_ORIGINS ?? '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
   ];
 
   app.enableCors({

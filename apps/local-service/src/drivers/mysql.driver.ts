@@ -10,13 +10,16 @@ import type {
 
 import { ConnectionProfile } from '../connections/connections.service';
 import {
+  CompletionData,
   DatabaseColumn,
   DatabaseDriver,
   DatabaseSchema,
   DatabaseTable,
   QueryOptions,
   QueryResult,
+  groupCompletionRows,
 } from './database-driver.interface';
+import { mysqlDialect } from './sql-dialects';
 import { PoolRegistry } from './pool-registry';
 import { resolveSsl } from './ssl-options';
 
@@ -71,6 +74,10 @@ export function normalizeResults(
 
 export class MySqlDriver implements DatabaseDriver {
   private readonly logger = new Logger(MySqlDriver.name);
+
+  readonly dialect = mysqlDialect;
+
+  readonly supportsCancel = true;
 
   private readonly pools = new PoolRegistry<Pool>((pool) => pool.end());
 
@@ -191,6 +198,18 @@ export class MySqlDriver implements DatabaseDriver {
 
     const startedAt = performance.now();
     let destroyConnection = false;
+    let active = true;
+
+    if (options.onCancelAvailable) {
+      const threadId = poolConnection.threadId;
+
+      // İptal, havuzdaki başka bir bağlantı üzerinden gönderilir.
+      options.onCancelAvailable(async () => {
+        if (active) {
+          await pool.query('KILL QUERY ?', [threadId]);
+        }
+      });
+    }
 
     try {
       const [result, fields] = await poolConnection.query(
@@ -240,6 +259,8 @@ export class MySqlDriver implements DatabaseDriver {
 
       throw error;
     } finally {
+      active = false;
+
       if (!destroyConnection) {
         // Açık kalan transaction'ı geri al.
         await poolConnection.query('ROLLBACK').catch(() => {
@@ -359,6 +380,41 @@ export class MySqlDriver implements DatabaseDriver {
         isForeignKey: Boolean(row.isForeignKey),
         position: Number(row.position),
       }));
+    });
+  }
+
+  async getCompletionData(
+    connection: ConnectionProfile,
+    password: string | null,
+    maxColumns: number,
+  ): Promise<CompletionData> {
+    return this.withConnection(connection, password, async (poolConnection) => {
+      const [rows] = await poolConnection.query(
+        `
+          SELECT
+            TABLE_SCHEMA AS \`schema\`,
+            TABLE_NAME AS \`table\`,
+            COLUMN_NAME AS \`column\`
+          FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA NOT IN (
+            'information_schema',
+            'mysql',
+            'performance_schema',
+            'sys'
+          )
+          ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+          LIMIT ?
+        `,
+        [maxColumns + 1],
+      );
+
+      return {
+        defaultSchema: connection.database || null,
+        ...groupCompletionRows(
+          rows as Array<{ schema: string; table: string; column: string }>,
+          maxColumns,
+        ),
+      };
     });
   }
 

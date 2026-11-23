@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -38,4 +39,11 @@ export class ExecuteQueryDto {
   @Min(1_000)
   @Max(600_000)
   timeoutMs?: number;
+
+  /**
+   * İstemcinin ürettiği kimlik; `POST /queries/:queryId/cancel` ile iptal için.
+   */
+  @IsOptional()
+  @IsUUID()
+  queryId?: string;
 }

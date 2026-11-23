@@ -90,7 +90,7 @@ describe('SqliteDriver', () => {
     );
 
     expect(result.rowCount).toBe(2);
-    expect(result.statementCount).toBeNull();
+    expect(result.statementCount).toBe(2);
 
     await expect(
       driver.executeQuery(
@@ -112,6 +112,57 @@ describe('SqliteDriver', () => {
 
     // 25 seed + 2; 'c' geri alınmış olmalı.
     expect(count.rows[0]).toEqual({ total: 27 });
+  });
+
+  it('returns the rows of the last SELECT in a script', async () => {
+    const result = await driver.executeQuery(
+      profile,
+      null,
+      "-- comment; with semicolon\nINSERT INTO users (name) VALUES ('semi;colon');\nSELECT name FROM users WHERE name LIKE '%;%';",
+      [],
+      options,
+    );
+
+    expect(result.statementCount).toBe(2);
+    expect(result.columns).toEqual(['name']);
+    expect(result.rows).toEqual([{ name: 'semi;colon' }]);
+  });
+
+  it('keeps trigger bodies together in scripts', async () => {
+    await driver.executeQuery(
+      profile,
+      null,
+      `CREATE TABLE audit (msg TEXT);
+       CREATE TRIGGER users_ai AFTER INSERT ON users BEGIN
+         INSERT INTO audit VALUES ('added ' || NEW.name);
+       END;
+       INSERT INTO users (name) VALUES ('zed');
+       SELECT msg FROM audit;`,
+      [],
+      options,
+    );
+
+    const audit = await driver.executeQuery(
+      profile,
+      null,
+      'SELECT msg FROM audit',
+      [],
+      options,
+    );
+
+    expect(audit.rows).toEqual([{ msg: 'added zed' }]);
+  });
+
+  it('respects explicit transaction control in scripts', async () => {
+    const result = await driver.executeQuery(
+      profile,
+      null,
+      "BEGIN; INSERT INTO users (name) VALUES ('t1'); COMMIT; SELECT COUNT(*) AS n FROM users;",
+      [],
+      options,
+    );
+
+    expect(result.rows).toEqual([{ n: 26 }]);
   });
 
   it('lists schemas, tables and columns', async () => {

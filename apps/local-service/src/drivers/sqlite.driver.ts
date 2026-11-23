@@ -3,18 +3,63 @@ import Database from 'better-sqlite3';
 
 import { ConnectionProfile } from '../connections/connections.service';
 import {
+  CompletionData,
   DatabaseColumn,
   DatabaseDriver,
   DatabaseSchema,
   DatabaseTable,
   QueryOptions,
   QueryResult,
+  groupCompletionRows,
 } from './database-driver.interface';
+import { sqliteDialect } from './sql-dialects';
 import { PoolRegistry } from './pool-registry';
 
+import { isBlankSql, splitSqlSegments } from './sql-splitter';
+
 const MULTIPLE_STATEMENTS = /more than one statement/i;
+const INCOMPLETE_INPUT = /incomplete input/i;
+/** İfade başında transaction kontrolü (BEGIN, COMMIT, END, ROLLBACK, SAVEPOINT, RELEASE). */
+const TRANSACTION_CONTROL =
+  /^\s*(?:(?:--[^\n]*\n|\/\*[\s\S]*?\*\/)\s*)*(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b/i;
+
+/** Jest gibi ayrı realm'larda `instanceof Error` güvenilmez; mesajı doğrudan oku. */
+const errorText = (error: unknown) =>
+  String((error as { message?: unknown })?.message ?? error);
+
+/**
+ * Satırları tek tek okuyarak limit aşıldığında durur; böylece büyük
+ * tablolarda tüm sonuç belleğe alınmaz.
+ */
+function readRows(
+  statement: Database.Statement,
+  parameters: unknown[],
+  maxRows: number,
+) {
+  const rows: Record<string, unknown>[] = [];
+  let truncated = false;
+
+  for (const row of statement.iterate(...(parameters as any[]))) {
+    if (rows.length >= maxRows) {
+      truncated = true;
+      break;
+    }
+
+    rows.push(row as Record<string, unknown>);
+  }
+
+  return {
+    columns: statement.columns().map((column) => column.name),
+    rows,
+    truncated,
+  };
+}
 
 export class SqliteDriver implements DatabaseDriver {
+  readonly dialect = sqliteDialect;
+
+  /** better-sqlite3 senkron çalışır; çalışan sorgu kesilemez. */
+  readonly supportsCancel = false;
   /**
    * SQLite için havuz yerine bağlantı başına tek, açık tutulan bir handle.
    */
@@ -77,9 +122,9 @@ export class SqliteDriver implements DatabaseDriver {
     } catch (error) {
       if (
         parameters.length === 0 &&
-        MULTIPLE_STATEMENTS.test(String((error as { message?: unknown })?.message))
+        MULTIPLE_STATEMENTS.test(errorText(error))
       ) {
-        return this.executeScript(db, sql, startedAt);
+        return this.executeScript(db, sql, options, startedAt);
       }
 
       throw error;
@@ -98,22 +143,14 @@ export class SqliteDriver implements DatabaseDriver {
       };
     }
 
-    // Satırları tek tek okuyarak limit aşıldığında dur; böylece büyük
-    // tablolarda tüm sonuç belleğe alınmaz.
-    const rows: Record<string, unknown>[] = [];
-    let truncated = false;
-
-    for (const row of statement.iterate(...(parameters as any[]))) {
-      if (rows.length >= options.maxRows) {
-        truncated = true;
-        break;
-      }
-
-      rows.push(row as Record<string, unknown>);
-    }
+    const { columns, rows, truncated } = readRows(
+      statement,
+      parameters,
+      options.maxRows,
+    );
 
     return {
-      columns: statement.columns().map((column) => column.name),
+      columns,
       rows,
       rowCount: rows.length,
       durationMs: Math.round(performance.now() - startedAt),
@@ -123,36 +160,92 @@ export class SqliteDriver implements DatabaseDriver {
   }
 
   /**
-   * Birden fazla ifade içeren parametresiz betikleri çalıştırır.
-   * Betik tek bir transaction içinde çalışır; hata olursa tamamı geri alınır.
+   * Birden fazla ifade içeren parametresiz betikleri ifade ifade çalıştırır.
+   *
+   * Son okuma ifadesinin (SELECT) satırları döner; okuma yoksa toplam
+   * etkilenen satır sayısı döner. Betik kendi transaction kontrolünü
+   * (BEGIN/COMMIT) içermiyorsa tek transaction içinde çalışır ve hata olursa
+   * tamamı geri alınır.
    */
   private executeScript(
     db: Database.Database,
     sql: string,
+    options: QueryOptions,
     startedAt: number,
   ): QueryResult {
-    const before = db.prepare('SELECT total_changes() AS total').get() as {
-      total: number;
+    const segments = splitSqlSegments(sql);
+    const managesTransaction = segments.some((segment) =>
+      TRANSACTION_CONTROL.test(segment),
+    );
+
+    const run = (): QueryResult => {
+      let pending = '';
+      let statementCount = 0;
+      let changes = 0;
+      let lastRead: {
+        columns: string[];
+        rows: Record<string, unknown>[];
+        truncated: boolean;
+      } | null = null;
+
+      for (const segment of segments) {
+        pending += segment;
+
+        if (isBlankSql(pending)) {
+          pending = '';
+          continue;
+        }
+
+        let statement: Database.Statement;
+
+        try {
+          statement = db.prepare(pending);
+        } catch (error) {
+          // Tetikleyici gövdesi gibi yarım kalmış ifade: sonraki parçayla birleştir.
+          if (INCOMPLETE_INPUT.test(errorText(error))) {
+            continue;
+          }
+
+          throw error;
+        }
+
+        pending = '';
+        statementCount++;
+
+        if (statement.reader) {
+          lastRead = readRows(statement, [], options.maxRows);
+        } else {
+          changes += statement.run().changes;
+        }
+      }
+
+      if (!isBlankSql(pending)) {
+        // Döngü bitti ama ifade hâlâ eksik: SQLite'ın kendi hatasını ver.
+        db.prepare(pending);
+      }
+
+      const durationMs = Math.round(performance.now() - startedAt);
+
+      return lastRead
+        ? {
+            ...lastRead,
+            rowCount: lastRead.rows.length,
+            durationMs,
+            statementCount,
+          }
+        : {
+            columns: [],
+            rows: [],
+            rowCount: changes,
+            durationMs,
+            truncated: false,
+            statementCount,
+          };
     };
 
-    if (db.inTransaction) {
-      db.exec(sql);
-    } else {
-      db.transaction(() => db.exec(sql))();
-    }
-
-    const after = db.prepare('SELECT total_changes() AS total').get() as {
-      total: number;
-    };
-
-    return {
-      columns: [],
-      rows: [],
-      rowCount: after.total - before.total,
-      durationMs: Math.round(performance.now() - startedAt),
-      truncated: false,
-      statementCount: null,
-    };
+    return db.inTransaction || managesTransaction
+      ? run()
+      : db.transaction(run)();
   }
 
   async getSchemas(
@@ -252,6 +345,57 @@ export class SqliteDriver implements DatabaseDriver {
       isForeignKey: foreignKeyColumns.has(column.name),
       position: column.cid + 1,
     }));
+  }
+
+  async getCompletionData(
+    connection: ConnectionProfile,
+    _password: string | null,
+    maxColumns: number,
+  ): Promise<CompletionData> {
+    const db = await this.getDatabase(connection);
+
+    const schemas = (
+      db.prepare('PRAGMA database_list').all() as Array<{ name: string }>
+    )
+      .map((row) => row.name)
+      .filter((name) => name !== 'temp');
+
+    const rows: Array<{ schema: string; table: string; column: string }> = [];
+
+    outer: for (const schema of schemas) {
+      const escapedSchema = schema.replace(/"/g, '""');
+
+      const tables = db
+        .prepare(
+          `
+          SELECT name FROM "${escapedSchema}".sqlite_master
+          WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
+          ORDER BY name
+        `,
+        )
+        .all() as Array<{ name: string }>;
+
+      for (const { name } of tables) {
+        const columns = db
+          .prepare(
+            `PRAGMA "${escapedSchema}".table_info("${name.replace(/"/g, '""')}")`,
+          )
+          .all() as Array<{ name: string }>;
+
+        for (const column of columns) {
+          rows.push({ schema, table: name, column: column.name });
+
+          if (rows.length > maxColumns) {
+            break outer;
+          }
+        }
+      }
+    }
+
+    return {
+      defaultSchema: 'main',
+      ...groupCompletionRows(rows, maxColumns),
+    };
   }
 
   release(connectionId: string): Promise<void> {

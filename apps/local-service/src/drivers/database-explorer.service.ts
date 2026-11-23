@@ -6,7 +6,12 @@ import {
   Logger,
 } from '@nestjs/common';
 
+import type { CompletionMetadata } from '@tukaka/contracts';
+
 import { ConnectionContextService } from './connection-context.service';
+
+/** Otomatik tamamlama için en fazla kolon sayısı. */
+const MAX_COMPLETION_COLUMNS = 20_000;
 
 @Injectable()
 export class DatabaseExplorerService {
@@ -66,16 +71,41 @@ export class DatabaseExplorerService {
     };
   }
 
-  private async run<T extends unknown[]>(
+  async getCompletion(connectionId: string): Promise<CompletionMetadata> {
+    const { connection, password, driver } =
+      this.contextService.resolve(connectionId);
+
+    const data = await this.run(
+      connection.name,
+      'Completion metadata',
+      () =>
+        driver.getCompletionData(connection, password, MAX_COMPLETION_COLUMNS),
+      (result) =>
+        Object.values(result.schemas).reduce(
+          (total, tables) => total + Object.keys(tables).length,
+          0,
+        ),
+    );
+
+    return {
+      success: true,
+      connectionId,
+      ...data,
+    };
+  }
+
+  private async run<T>(
     connectionName: string,
     operation: string,
     work: () => Promise<T>,
+    count: (result: T) => number = (result) =>
+      Array.isArray(result) ? result.length : 0,
   ): Promise<T> {
     try {
       const result = await work();
 
       this.logger.log(
-        `${operation} succeeded. Connection: ${connectionName}, Count: ${result.length}`,
+        `${operation} succeeded. Connection: ${connectionName}, Count: ${count(result)}`,
       );
 
       return result;

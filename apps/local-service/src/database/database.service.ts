@@ -13,6 +13,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { migrations } from './migrations';
+
 @Injectable()
 export class DatabaseService
   implements OnModuleInit, OnModuleDestroy
@@ -89,60 +91,44 @@ export class DatabaseService
     }
   }
 
-  
-    private initializeSchema(): void {
-    this.database.exec(`
-        CREATE TABLE IF NOT EXISTS app_metadata (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
+  /**
+   * Bekleyen şema geçişlerini sırayla uygular.
+   */
+  private initializeSchema(): void {
+    const currentVersion = this.database.pragma('user_version', {
+      simple: true,
+    }) as number;
 
-        CREATE TABLE IF NOT EXISTS connection_profiles (
-        id TEXT PRIMARY KEY,
+    const pending = migrations
+      .filter((migration) => migration.version > currentVersion)
+      .sort((a, b) => a.version - b.version);
 
-        name TEXT NOT NULL,
+    for (const migration of pending) {
+      this.database.transaction(() => {
+        this.database.exec(migration.up);
+        this.database.pragma(`user_version = ${migration.version}`);
+      })();
 
-        type TEXT NOT NULL CHECK (
-            type IN ('postgresql', 'mysql', 'sqlite')
-        ),
-
-        host TEXT,
-        port INTEGER,
-
-        database TEXT NOT NULL,
-
-        username TEXT,
-
-        credential_key TEXT,
-
-        ssl_mode TEXT NOT NULL DEFAULT 'prefer',
-
-        options_json TEXT NOT NULL DEFAULT '{}',
-
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-        last_connected_at TEXT
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_connection_profiles_name
-        ON connection_profiles(name);
-
-        CREATE INDEX IF NOT EXISTS idx_connection_profiles_type
-        ON connection_profiles(type);
-    `);
-
-    this.database
-        .prepare(`
-        INSERT INTO app_metadata (key, value)
-        VALUES ('database_version', '2')
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
-            updated_at = CURRENT_TIMESTAMP
-        `)
-        .run();
+      this.logger.log(
+        `Applied migration ${migration.version}: ${migration.description}`,
+      );
     }
 
+    const latestVersion = Math.max(
+      currentVersion,
+      ...migrations.map((migration) => migration.version),
+    );
+
+    this.database
+      .prepare(
+        `
+        INSERT INTO app_metadata (key, value)
+        VALUES ('database_version', @version)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      )
+      .run({ version: String(latestVersion) });
+  }
 }

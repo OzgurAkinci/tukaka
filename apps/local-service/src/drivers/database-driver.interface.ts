@@ -1,25 +1,18 @@
 
-import { ConnectionProfile } from '../connections/connections.service';
+import type {
+  ConnectionProfile,
+  DatabaseColumn,
+  DatabaseSchema,
+  DatabaseTable,
+  QueryResult,
+} from '@tukaka/contracts';
 
-export interface QueryResult {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  /**
-   * Okuma sorgularında döndürülen satır sayısı (limit uygulanmış),
-   * yazma sorgularında etkilenen satır sayısı.
-   */
-  rowCount: number;
-  durationMs: number;
-  /**
-   * Sonuç `maxRows` sınırı nedeniyle kesildiyse true.
-   */
-  truncated: boolean;
-  /**
-   * Gönderilen SQL içindeki çalıştırılan ifade sayısı (bilinmiyorsa null).
-   * Birden fazla ifade varsa sonuç olarak son ifadenin sonucu döner.
-   */
-  statementCount: number | null;
-}
+export type {
+  DatabaseColumn,
+  DatabaseSchema,
+  DatabaseTable,
+  QueryResult,
+} from '@tukaka/contracts';
 
 export interface QueryOptions {
   /**
@@ -30,34 +23,44 @@ export interface QueryOptions {
    * Sorgu zaman aşımı (milisaniye).
    */
   timeoutMs: number;
+  /**
+   * Sürücü sorguyu başlattığında, sorguyu iptal edecek fonksiyonu bildirir.
+   * İptali desteklemeyen sürücüler (SQLite) bunu hiç çağırmaz.
+   */
+  onCancelAvailable?: (cancel: () => Promise<void>) => void;
 }
 
-export const DEFAULT_QUERY_OPTIONS: QueryOptions = {
+export const DEFAULT_QUERY_OPTIONS = {
   maxRows: 1000,
   timeoutMs: 30_000,
-};
+} as const;
 
-export interface DatabaseSchema {
-  name: string;
+export interface CompletionData {
+  defaultSchema: string | null;
+  schemas: Record<string, Record<string, string[]>>;
+  truncated: boolean;
 }
 
-export interface DatabaseTable {
-  name: string;
-  schema: string;
-  type: 'table' | 'view';
-}
-
-export interface DatabaseColumn {
-  name: string;
-  dataType: string;
-  nullable: boolean;
-  defaultValue: string | null;
-  isPrimaryKey: boolean;
-  isForeignKey: boolean;
-  position: number;
+/**
+ * Sürücüye özgü SQL sözdizimi farkları.
+ */
+export interface SqlDialect {
+  /** Tanımlayıcıyı (tablo/kolon adı) güvenli şekilde tırnaklar. */
+  quoteIdentifier: (name: string) => string;
+  /** 1 tabanlı parametre yer tutucusu ($1 ya da ?). */
+  placeholder: (index: number) => string;
+  /** İfadeyi metne dönüştürür (LIKE karşılaştırmaları için). */
+  castToText: (expression: string) => string;
+  /** Büyük/küçük harf duyarsız LIKE operatörü. */
+  caseInsensitiveLike: string;
 }
 
 export interface DatabaseDriver {
+  readonly dialect: SqlDialect;
+
+  /** Çalışan sorgular iptal edilebilir mi? */
+  readonly supportsCancel: boolean;
+
   /**
    * Veritabanına bağlantıyı test eder.
    */
@@ -105,6 +108,15 @@ export interface DatabaseDriver {
   ): Promise<DatabaseColumn[]>;
 
   /**
+   * Editör otomatik tamamlaması için şema/tablo/kolon adlarını getirir.
+   */
+  getCompletionData(
+    connection: ConnectionProfile,
+    password: string | null,
+    maxColumns: number,
+  ): Promise<CompletionData>;
+
+  /**
    * Bağlantıya ait havuzu / açık handle'ı kapatır.
    */
   release(connectionId: string): Promise<void>;
@@ -113,4 +125,21 @@ export interface DatabaseDriver {
    * Tüm havuzları kapatır (servis kapanırken).
    */
   releaseAll(): Promise<void>;
+}
+
+/**
+ * Düz (şema, tablo, kolon) satırlarını iç içe yapıya çevirir.
+ */
+export function groupCompletionRows(
+  rows: Array<{ schema: string; table: string; column: string }>,
+  maxColumns: number,
+): Pick<CompletionData, 'schemas' | 'truncated'> {
+  const schemas: CompletionData['schemas'] = {};
+
+  for (const row of rows.slice(0, maxColumns)) {
+    const tables = (schemas[row.schema] ??= {});
+    (tables[row.table] ??= []).push(row.column);
+  }
+
+  return { schemas, truncated: rows.length > maxColumns };
 }

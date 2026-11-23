@@ -1,0 +1,12 @@
+{
+  "name": "@tukaka/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web arayüzü ile local service arasında paylaşılan API tipleri (yalnızca tip, çalışma zamanı kodu yok).",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts"
+    }
+  }
+}

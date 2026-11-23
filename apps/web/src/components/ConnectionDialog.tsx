@@ -2,13 +2,9 @@
 import { useState } from 'react';
 import { Database, X } from 'lucide-react';
 
-export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite';
-export type SslMode =
-    | 'disable'
-    | 'prefer'
-    | 'require'
-    | 'verify-ca'
-    | 'verify-full';
+import type { DatabaseType, SslMode } from '@tukaka/contracts';
+
+export type { DatabaseType, SslMode };
 
 const sslModes: ReadonlyArray<[SslMode, string, string]> = [
     ['disable', 'Disable', 'Never use SSL.'],

@@ -5,13 +5,16 @@ import type { PoolClient, QueryResult as PgQueryResult } from 'pg';
 
 import { ConnectionProfile } from '../connections/connections.service';
 import {
+  CompletionData,
   DatabaseColumn,
   DatabaseDriver,
   DatabaseSchema,
   DatabaseTable,
   QueryOptions,
   QueryResult,
+  groupCompletionRows,
 } from './database-driver.interface';
+import { postgresDialect } from './sql-dialects';
 import { PoolRegistry } from './pool-registry';
 import { resolveSsl } from './ssl-options';
 
@@ -19,6 +22,10 @@ const NO_SSL_SUPPORT = /does not support SSL/i;
 
 export class PostgreSqlDriver implements DatabaseDriver {
   private readonly logger = new Logger(PostgreSqlDriver.name);
+
+  readonly dialect = postgresDialect;
+
+  readonly supportsCancel = true;
 
   private readonly pools = new PoolRegistry<Pool>((pool) => pool.end());
 
@@ -135,11 +142,24 @@ export class PostgreSqlDriver implements DatabaseDriver {
 
     const startedAt = performance.now();
     let destroyClient = false;
+    let active = true;
 
     try {
       await client.query(
         `SET statement_timeout = ${Math.max(0, Math.floor(options.timeoutMs))}`,
       );
+
+      const backendPid = (client as unknown as { processID?: number })
+        .processID;
+
+      if (backendPid && options.onCancelAvailable) {
+        // İptal, havuzdaki başka bir bağlantı üzerinden gönderilir.
+        options.onCancelAvailable(async () => {
+          if (active) {
+            await pool.query('SELECT pg_cancel_backend($1)', [backendPid]);
+          }
+        });
+      }
 
       // Parametresiz sorgular "simple query" protokolüyle gider ve birden fazla
       // ifade içerebilir; bu durumda pg bir dizi döndürür.
@@ -173,6 +193,8 @@ export class PostgreSqlDriver implements DatabaseDriver {
         statementCount: results.length,
       };
     } finally {
+      active = false;
+
       // Havuza dönen bağlantı, yeni açılmış bir bağlantı gibi temiz olmalı:
       // açık kalan transaction geri alınır, oturum ayarları sıfırlanır.
       try {
@@ -298,6 +320,42 @@ export class PostgreSqlDriver implements DatabaseDriver {
         isForeignKey: row.isForeignKey,
         position: Number(row.position),
       }));
+    });
+  }
+
+  async getCompletionData(
+    connection: ConnectionProfile,
+    password: string | null,
+    maxColumns: number,
+  ): Promise<CompletionData> {
+    return this.withClient(connection, password, async (client) => {
+      const current = await client.query<{ name: string }>(
+        'SELECT current_schema() AS name',
+      );
+
+      const result = await client.query<{
+        schema: string;
+        table: string;
+        column: string;
+      }>(
+        `
+          SELECT
+            table_schema AS schema,
+            table_name AS "table",
+            column_name AS "column"
+          FROM information_schema.columns
+          WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+            AND table_schema NOT LIKE 'pg_toast%'
+          ORDER BY table_schema, table_name, ordinal_position
+          LIMIT $1
+        `,
+        [maxColumns + 1],
+      );
+
+      return {
+        defaultSchema: current.rows[0]?.name ?? null,
+        ...groupCompletionRows(result.rows, maxColumns),
+      };
     });
   }
 

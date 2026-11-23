@@ -14,21 +14,9 @@ import { CredentialService } from '../credentials/credential.service';
 import { ConnectionEventsService } from './connection-events.service';
 
 
-export interface ConnectionProfile {
-    id: string;
-    name: string;
-    type: 'postgresql' | 'mysql' | 'sqlite';
-    host: string | null;
-    port: number | null;
-    database: string;
-    username: string | null;
-    credential_key: string | null;
-    ssl_mode: string;
-    options_json: string;
-    created_at: string;
-    updated_at: string;
-    last_connected_at: string | null;
-}
+import type { ConnectionProfile } from '@tukaka/contracts';
+
+export type { ConnectionProfile };
 
 @Injectable()
 export class ConnectionsService {
