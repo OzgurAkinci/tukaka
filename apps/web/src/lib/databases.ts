@@ -68,6 +68,16 @@ export const databases: Record<DatabaseType, DatabaseInfo> = {
     // ClickHouse'ta transaction ve birincil anahtar tekilliği yoktur.
     supports: { rowEditing: false, routines: false, cancel: true, ssl: true },
   },
+  oracle: {
+    label: 'Oracle',
+    defaultPort: 1521,
+    // Oracle'da "veritabanı" servis adıdır (Oracle Free: FREEPDB1).
+    defaultDatabase: 'FREEPDB1',
+    defaultUsername: 'system',
+    color: 'text-rose-400',
+    server: true,
+    supports: { rowEditing: true, routines: true, cancel: true, ssl: true },
+  },
   sqlite: {
     label: 'SQLite',
     defaultPort: 0,

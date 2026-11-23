@@ -82,7 +82,10 @@ export function buildTableDataQuery(
 
         const negate = filter.operator === 'notContains' ? 'NOT ' : '';
 
-        return `${dialect.castToText(column)} ${negate}${dialect.caseInsensitiveLike} ${nextParameter(pattern)} ESCAPE '!'`;
+        const parameter = nextParameter(pattern);
+        const operand = dialect.likeParameter ? dialect.likeParameter(parameter) : parameter;
+
+        return `${dialect.castToText(column)} ${negate}${dialect.caseInsensitiveLike} ${operand} ESCAPE '!'`;
       }
 
       default: {

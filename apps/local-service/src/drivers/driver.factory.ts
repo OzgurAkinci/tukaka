@@ -13,6 +13,7 @@ import { MySqlDriver } from './mysql.driver';
 import { SqliteDriver } from './sqlite.driver';
 import { MssqlDriver } from './mssql.driver';
 import { ClickHouseDriver } from './clickhouse.driver';
+import { OracleDriver } from './oracle.driver';
 
 import { ConnectionProfile } from '../connections/connections.service';
 import { ConnectionEventsService } from '../connections/connection-events.service';
@@ -33,6 +34,7 @@ export class DriverFactory implements OnModuleDestroy {
       sqlite: new SqliteDriver(),
       mssql: new MssqlDriver(),
       clickhouse: new ClickHouseDriver(),
+      oracle: new OracleDriver(),
     };
   })();
 

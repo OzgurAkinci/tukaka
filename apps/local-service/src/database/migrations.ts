@@ -150,4 +150,46 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    description: 'Allow Oracle connections',
+    disableForeignKeys: true,
+    up: `
+      CREATE TABLE connection_profiles_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (
+          type IN ('postgresql', 'mysql', 'mariadb', 'sqlite', 'mssql', 'clickhouse', 'oracle')
+        ),
+        host TEXT,
+        port INTEGER,
+        database TEXT NOT NULL,
+        username TEXT,
+        credential_key TEXT,
+        ssl_mode TEXT NOT NULL DEFAULT 'prefer',
+        options_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_connected_at TEXT
+      );
+
+      INSERT INTO connection_profiles_new (
+        id, name, type, host, port, database, username, credential_key,
+        ssl_mode, options_json, created_at, updated_at, last_connected_at
+      )
+      SELECT
+        id, name, type, host, port, database, username, credential_key,
+        ssl_mode, options_json, created_at, updated_at, last_connected_at
+      FROM connection_profiles;
+
+      DROP TABLE connection_profiles;
+      ALTER TABLE connection_profiles_new RENAME TO connection_profiles;
+
+      CREATE INDEX IF NOT EXISTS idx_connection_profiles_name
+        ON connection_profiles(name);
+
+      CREATE INDEX IF NOT EXISTS idx_connection_profiles_type
+        ON connection_profiles(type);
+    `,
+  },
 ];

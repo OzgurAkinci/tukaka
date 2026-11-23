@@ -78,7 +78,7 @@ export function buildRowChangeStatements(
 
         if (names.length === 0) {
           return {
-            sql: dialect.insertDefaultValues(tableRef),
+            sql: dialect.insertDefaultValues(tableRef, quote(columns[0]?.name ?? '')),
             parameters: [],
             expectedRows: 1,
           };

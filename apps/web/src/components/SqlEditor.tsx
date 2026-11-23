@@ -7,6 +7,7 @@ import {
   MariaSQL,
   MSSQL,
   MySQL,
+  PLSQL,
   PostgreSQL,
   SQLite,
   StandardSQL,
@@ -47,6 +48,7 @@ const dialects: Record<DatabaseType, typeof StandardSQL> = {
   sqlite: SQLite,
   mssql: MSSQL,
   clickhouse: StandardSQL,
+  oracle: PLSQL,
 };
 
 function languageExtension(

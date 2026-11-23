@@ -14,7 +14,8 @@ export type DatabaseType =
   | 'mariadb'
   | 'sqlite'
   | 'mssql'
-  | 'clickhouse';
+  | 'clickhouse'
+  | 'oracle';
 
 /** SSH tüneli ayarları (bağlantının `options_json` alanında saklanır). */
 export interface SshTunnelConfig {

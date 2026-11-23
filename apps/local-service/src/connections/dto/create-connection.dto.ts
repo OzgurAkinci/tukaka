@@ -25,6 +25,7 @@ export const CONNECTION_TYPES: ConnectionType[] = [
   'sqlite',
   'mssql',
   'clickhouse',
+  'oracle',
 ];
 
 export type SslMode =

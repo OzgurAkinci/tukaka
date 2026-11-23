@@ -301,7 +301,9 @@ export default function ConnectionDialog({
                 </div>
 
                 <div>
-                  <label className={labelClass} htmlFor="connection-database">Database</label>
+                  <label className={labelClass} htmlFor="connection-database">
+                    {type === 'oracle' ? 'Service name' : 'Database'}
+                  </label>
                   <input
                     id="connection-database"
                     required

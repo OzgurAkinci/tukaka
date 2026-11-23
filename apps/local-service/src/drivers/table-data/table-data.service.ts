@@ -95,7 +95,8 @@ export class TableDataService {
           { ...options, maxRows: 1 },
         );
 
-        totalCount = Number(count.rows[0]?.total ?? 0);
+        // Oracle tırnaksız takma adları büyük harfe çevirir (TOTAL); ilk değeri oku.
+        totalCount = Number(Object.values(count.rows[0] ?? {})[0] ?? 0);
       }
 
       return {

@@ -117,7 +117,7 @@ describe('Migration 3 (connection type constraint)', () => {
     expect(() =>
       db
         .prepare(
-          "INSERT INTO connection_profiles (id, name, type, database) VALUES ('c2', 'CH', 'clickhouse', 'default')",
+          "INSERT INTO connection_profiles (id, name, type, database) VALUES ('c2', 'CH', 'clickhouse', 'default'), ('c3', 'ORA', 'oracle', 'FREEPDB1')",
         )
         .run(),
     ).not.toThrow();

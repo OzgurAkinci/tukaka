@@ -87,6 +87,23 @@ export const mssqlDialect: SqlDialect = {
     `${hasOrderBy ? '' : ' ORDER BY (SELECT NULL)'} OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`,
 };
 
+export const oracleDialect: SqlDialect = {
+  quoteIdentifier: quoteDouble,
+  // oracledb konumsal bağlamada adlar değil sıra kullanılır: :1, :2…
+  placeholder: (index) => `:${index}`,
+  // ILIKE yok: her iki taraf UPPER ile karşılaştırılır.
+  castToText: (expression) => `UPPER(TO_CHAR(${expression}))`,
+  caseInsensitiveLike: 'LIKE',
+  likeParameter: (placeholder) => `UPPER(${placeholder})`,
+  formatLiteral: (value) =>
+    literal(value, { booleans: 'number', backslashEscapes: false }),
+  // Oracle'da DEFAULT VALUES yok; bir kolonu DEFAULT ile vermek gerekir.
+  insertDefaultValues: (tableRef, firstColumn) =>
+    `INSERT INTO ${tableRef} (${firstColumn}) VALUES (DEFAULT)`,
+  // 12c+: ORDER BY gerektirmeyen OFFSET/FETCH.
+  paginate: (limit, offset) => ` OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`,
+};
+
 export const clickhouseDialect: SqlDialect = {
   quoteIdentifier: (name) => '`' + name.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`',
   placeholder: (index) => `{p${index}:String}`,

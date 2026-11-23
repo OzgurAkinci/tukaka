@@ -98,8 +98,16 @@ export interface SqlDialect {
   caseInsensitiveLike: string;
   /** Önizleme için değeri SQL sabitine çevirir (çalıştırmada kullanılmaz). */
   formatLiteral: (value: unknown) => string;
-  /** Hiç kolon verilmeden satır ekleme sözdizimi. */
-  insertDefaultValues: (tableRef: string) => string;
+  /**
+   * Hiç kolon verilmeden satır ekleme sözdizimi. `firstColumn`, sözdizimi bir
+   * kolon adı gerektiren veritabanları (Oracle) içindir.
+   */
+  insertDefaultValues: (tableRef: string, firstColumn: string) => string;
+  /**
+   * Büyük/küçük harf duyarsız LIKE için parametreyi saran ifade
+   * (ILIKE olmayan veritabanlarında, ör. Oracle: UPPER(:1)).
+   */
+  likeParameter?: (placeholder: string) => string;
   /** Sayfalama: LIMIT/OFFSET ya da OFFSET/FETCH. */
   paginate: (limit: number, offset: number, hasOrderBy: boolean) => string;
 }
