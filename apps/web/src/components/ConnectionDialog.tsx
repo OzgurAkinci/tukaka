@@ -3,7 +3,26 @@ import { useState } from 'react';
 import { Database, X } from 'lucide-react';
 
 export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite';
-export type SslMode = 'disable' | 'require';
+export type SslMode =
+    | 'disable'
+    | 'prefer'
+    | 'require'
+    | 'verify-ca'
+    | 'verify-full';
+
+const sslModes: ReadonlyArray<[SslMode, string, string]> = [
+    ['disable', 'Disable', 'Never use SSL.'],
+    ['prefer', 'Prefer', 'Use SSL if the server supports it, otherwise connect without it. The certificate is not validated.'],
+    ['require', 'Require', 'Always use SSL, but do not validate the server certificate.'],
+    ['verify-ca', 'Verify CA', 'Always use SSL and validate the certificate chain (host name is not checked).'],
+    ['verify-full', 'Verify Full', 'Always use SSL and validate both the certificate chain and the host name.'],
+];
+
+function toSslMode(value: string | undefined): SslMode {
+    return sslModes.some(([mode]) => mode === value)
+        ? (value as SslMode)
+        : 'prefer';
+}
 
 export interface ConnectionConfig {
     name: string;
@@ -70,13 +89,13 @@ export default function ConnectionDialog({
     const [password, setPassword] = useState('');
 
     const [sslMode, setSslMode] = useState<SslMode>(
-        initialConfig?.ssl_mode === 'require' ? 'require' : 'disable',
+        toSslMode(initialConfig?.ssl_mode),
     );
 
     const handleTypeChange = (newType: DatabaseType) => {
         setType(newType);
         setPort(String(defaultPorts[newType]));
-        setSslMode('disable');
+        setSslMode('prefer');
 
         if (newType === 'sqlite') {
             setName('Local SQLite');
@@ -102,8 +121,6 @@ export default function ConnectionDialog({
                 port: Number(port),
                 username,
                 ...(password && { password }),
-            }),
-            ...(type === 'postgresql' && {
                 sslMode,
             }),
         };
@@ -262,27 +279,27 @@ export default function ConnectionDialog({
                                     />
                                 </div>
 
-                                {type === 'postgresql' && (
-                                    <div>
-                                        <label className={labelClass}>SSL Mode</label>
+                                <div>
+                                    <label className={labelClass}>SSL Mode</label>
 
-                                        <select
-                                            value={sslMode}
-                                            onChange={(event) =>
-                                                setSslMode(event.target.value as SslMode)
-                                            }
-                                            className={inputClass}
-                                        >
-                                            <option value="disable">Disable</option>
-                                            <option value="require">Require</option>
-                                        </select>
+                                    <select
+                                        value={sslMode}
+                                        onChange={(event) =>
+                                            setSslMode(event.target.value as SslMode)
+                                        }
+                                        className={inputClass}
+                                    >
+                                        {sslModes.map(([value, label]) => (
+                                            <option key={value} value={value}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </select>
 
-                                        <p className="mt-1.5 text-[11px] text-[#737d8d]">
-                                            Require enables encrypted connections without
-                                            validating the server certificate.
-                                        </p>
-                                    </div>
-                                )}
+                                    <p className="mt-1.5 text-[11px] text-[#737d8d]">
+                                        {sslModes.find(([value]) => value === sslMode)?.[2]}
+                                    </p>
+                                </div>
 
                                 <div>
                                     <label className={labelClass}>Password</label>

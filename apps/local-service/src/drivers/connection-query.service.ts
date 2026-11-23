@@ -1,45 +1,24 @@
 
-import {
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
-import { ConnectionsService } from '../connections/connections.service';
-import { CredentialService } from '../credentials/credential.service';
-import { DriverFactory } from './driver.factory';
+import { ConnectionContextService } from './connection-context.service';
+import { DEFAULT_QUERY_OPTIONS } from './database-driver.interface';
 import { ExecuteQueryDto } from './dto/execute-query.dto';
 
 @Injectable()
 export class ConnectionQueryService {
   private readonly logger = new Logger(ConnectionQueryService.name);
 
-  constructor(
-    private readonly connectionsService: ConnectionsService,
-    private readonly credentialService: CredentialService,
-    private readonly driverFactory: DriverFactory,
-  ) {}
+  constructor(private readonly contextService: ConnectionContextService) {}
 
-  async executeQuery(
-    connectionId: string,
-    dto: ExecuteQueryDto,
-  ) {
-    const connection = this.connectionsService.findOne(connectionId);
+  async executeQuery(connectionId: string, dto: ExecuteQueryDto) {
+    const { connection, password, driver } =
+      this.contextService.resolve(connectionId);
 
-    const password =
-      connection.type === 'sqlite'
-        ? null
-        : this.credentialService.getPassword(connectionId);
-
-    if (connection.type !== 'sqlite' && !password) {
-      throw new ServiceUnavailableException(
-        'No saved password found for this connection.',
-      );
-    }
-
-    const driver = this.driverFactory.getDriver(connection);
-
-    const startedAt = Date.now();
+    const options = {
+      maxRows: dto.maxRows ?? DEFAULT_QUERY_OPTIONS.maxRows,
+      timeoutMs: dto.timeoutMs ?? DEFAULT_QUERY_OPTIONS.timeoutMs,
+    };
 
     try {
       const result = await driver.executeQuery(
@@ -47,10 +26,13 @@ export class ConnectionQueryService {
         password,
         dto.sql,
         dto.parameters ?? [],
+        options,
       );
 
+      this.contextService.markConnected(connectionId);
+
       this.logger.log(
-        `Query executed successfully. Connection: ${connection.name}, Duration: ${Date.now() - startedAt}ms`,
+        `Query executed successfully. Connection: ${connection.name}, Duration: ${result.durationMs}ms, Rows: ${result.rowCount}${result.truncated ? ' (truncated)' : ''}`,
       );
 
       return {
@@ -60,15 +42,14 @@ export class ConnectionQueryService {
       };
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : 'Query execution failed.';
+        error instanceof Error ? error.message : 'Query execution failed.';
 
       this.logger.warn(
         `Query execution failed. Connection: ${connection.name}, Error: ${message}`,
       );
 
-      throw error;
+      // Veritabanından gelen SQL hataları kullanıcı hatasıdır; 500 değil 400 dön.
+      throw new BadRequestException(message);
     }
   }
 }

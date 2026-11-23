@@ -6,6 +6,9 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Servis kapanırken açık veritabanı havuzlarını düzgünce kapat.
+  app.enableShutdownHooks();
+
   const allowedOrigins = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
@@ -24,7 +27,7 @@ async function bootstrap() {
       callback(new Error('Origin not allowed by CORS'), false);
     },
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   app.useGlobalPipes(
@@ -44,4 +47,7 @@ async function bootstrap() {
   );
 }
 
-bootstrap();
+bootstrap().catch((error: unknown) => {
+  console.error('TUKAKA Local Service failed to start:', error);
+  process.exit(1);
+});

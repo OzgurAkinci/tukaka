@@ -3,22 +3,47 @@ import Database from 'better-sqlite3';
 
 import { ConnectionProfile } from '../connections/connections.service';
 import {
+  DatabaseColumn,
   DatabaseDriver,
   DatabaseSchema,
   DatabaseTable,
+  QueryOptions,
   QueryResult,
 } from './database-driver.interface';
+import { PoolRegistry } from './pool-registry';
+
+const MULTIPLE_STATEMENTS = /more than one statement/i;
 
 export class SqliteDriver implements DatabaseDriver {
-  private createClient(connection: ConnectionProfile): Database.Database {
-    if (!connection.database) {
-      throw new Error('SQLite database file path is required.');
-    }
+  /**
+   * SQLite için havuz yerine bağlantı başına tek, açık tutulan bir handle.
+   */
+  private readonly handles = new PoolRegistry<Database.Database>(
+    async (db) => {
+      if (db.open) {
+        db.close();
+      }
+    },
+  );
 
-    return new Database(connection.database, {
-      readonly: false,
-      fileMustExist: true,
-      timeout: 10000,
+  private getDatabase(
+    connection: ConnectionProfile,
+  ): Promise<Database.Database> {
+    return this.handles.get(connection, null, async () => {
+      if (!connection.database) {
+        throw new Error('SQLite database file path is required.');
+      }
+
+      const db = new Database(connection.database, {
+        readonly: false,
+        fileMustExist: true,
+        // Kilitli veritabanında bekleme süresi (busy timeout).
+        timeout: 10_000,
+      });
+
+      db.pragma('foreign_keys = ON');
+
+      return db;
     });
   }
 
@@ -26,74 +51,125 @@ export class SqliteDriver implements DatabaseDriver {
     connection: ConnectionProfile,
     _password: string | null,
   ): Promise<void> {
-    const db = this.createClient(connection);
+    const db = await this.getDatabase(connection);
 
-    try {
-      db.prepare('SELECT 1').get();
-    } finally {
-      db.close();
-    }
+    db.prepare('SELECT 1').get();
   }
 
+  /**
+   * Not: better-sqlite3 senkron çalışır ve çalışan bir sorguyu kesmeyi
+   * desteklemez; bu nedenle `timeoutMs` SQLite için uygulanmaz.
+   */
   async executeQuery(
     connection: ConnectionProfile,
     _password: string | null,
     sql: string,
-    parameters: unknown[] = [],
+    parameters: unknown[],
+    options: QueryOptions,
   ): Promise<QueryResult> {
-    const db = this.createClient(connection);
+    const db = await this.getDatabase(connection);
     const startedAt = performance.now();
 
+    let statement: Database.Statement;
+
     try {
-      const statement = db.prepare(sql);
-
-      const result = statement.reader
-        ? statement.all(...parameters as any[])
-        : [];
-
-      let rowCount: number;
-
-      if (statement.reader) {
-        rowCount = result.length;
-      } else {
-        const writeResult = statement.run(...parameters as any[]);
-        rowCount = writeResult.changes;
+      statement = db.prepare(sql);
+    } catch (error) {
+      if (
+        parameters.length === 0 &&
+        MULTIPLE_STATEMENTS.test(String((error as { message?: unknown })?.message))
+      ) {
+        return this.executeScript(db, sql, startedAt);
       }
 
-      const columns = statement.columns().map(
-        (column) => column.name,
-      );
+      throw error;
+    }
+
+    if (!statement.reader) {
+      const writeResult = statement.run(...(parameters as any[]));
 
       return {
-        columns,
-        rows: result as Record<string, unknown>[],
-        rowCount,
+        columns: [],
+        rows: [],
+        rowCount: writeResult.changes,
         durationMs: Math.round(performance.now() - startedAt),
+        truncated: false,
+        statementCount: 1,
       };
-    } finally {
-      db.close();
     }
+
+    // Satırları tek tek okuyarak limit aşıldığında dur; böylece büyük
+    // tablolarda tüm sonuç belleğe alınmaz.
+    const rows: Record<string, unknown>[] = [];
+    let truncated = false;
+
+    for (const row of statement.iterate(...(parameters as any[]))) {
+      if (rows.length >= options.maxRows) {
+        truncated = true;
+        break;
+      }
+
+      rows.push(row as Record<string, unknown>);
+    }
+
+    return {
+      columns: statement.columns().map((column) => column.name),
+      rows,
+      rowCount: rows.length,
+      durationMs: Math.round(performance.now() - startedAt),
+      truncated,
+      statementCount: 1,
+    };
+  }
+
+  /**
+   * Birden fazla ifade içeren parametresiz betikleri çalıştırır.
+   * Betik tek bir transaction içinde çalışır; hata olursa tamamı geri alınır.
+   */
+  private executeScript(
+    db: Database.Database,
+    sql: string,
+    startedAt: number,
+  ): QueryResult {
+    const before = db.prepare('SELECT total_changes() AS total').get() as {
+      total: number;
+    };
+
+    if (db.inTransaction) {
+      db.exec(sql);
+    } else {
+      db.transaction(() => db.exec(sql))();
+    }
+
+    const after = db.prepare('SELECT total_changes() AS total').get() as {
+      total: number;
+    };
+
+    return {
+      columns: [],
+      rows: [],
+      rowCount: after.total - before.total,
+      durationMs: Math.round(performance.now() - startedAt),
+      truncated: false,
+      statementCount: null,
+    };
   }
 
   async getSchemas(
     connection: ConnectionProfile,
     _password: string | null,
   ): Promise<DatabaseSchema[]> {
-    const db = this.createClient(connection);
+    const db = await this.getDatabase(connection);
 
-    try {
-      const rows = db.prepare(`
-        PRAGMA database_list
-      `).all() as Array<{ name: string }>;
+    const rows = db.prepare('PRAGMA database_list').all() as Array<{
+      name: string;
+    }>;
 
-      return rows
-        .filter((row) => row.name !== 'temp')
-        .map((row) => ({
-          name: row.name,
-        }));
-    } finally {
-      db.close();
-    }
+    return rows
+      .filter((row) => row.name !== 'temp')
+      .map((row) => ({
+        name: row.name,
+      }));
   }
 
   async getTables(
@@ -101,13 +177,14 @@ export class SqliteDriver implements DatabaseDriver {
     _password: string | null,
     schema: string,
   ): Promise<DatabaseTable[]> {
-    const db = this.createClient(connection);
+    const db = await this.getDatabase(connection);
 
-    try {
-      // Schema adını SQL identifier olarak güvenli şekilde kaçır.
-      const escapedSchema = schema.replace(/"/g, '""');
+    // Schema adını SQL identifier olarak güvenli şekilde kaçır.
+    const escapedSchema = schema.replace(/"/g, '""');
 
-      const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
         SELECT
           name,
           type
@@ -115,18 +192,73 @@ export class SqliteDriver implements DatabaseDriver {
         WHERE type IN ('table', 'view')
           AND name NOT LIKE 'sqlite_%'
         ORDER BY name
-      `).all() as Array<{
-        name: string;
-        type: 'table' | 'view';
-      }>;
+      `,
+      )
+      .all() as Array<{
+      name: string;
+      type: 'table' | 'view';
+    }>;
 
-      return rows.map((row) => ({
-        name: row.name,
-        schema,
-        type: row.type,
-      }));
-    } finally {
-      db.close();
-    }
+    return rows.map((row) => ({
+      name: row.name,
+      schema,
+      type: row.type,
+    }));
+  }
+
+  async getColumns(
+    connection: ConnectionProfile,
+    _password: string | null,
+    schema: string,
+    table: string,
+  ): Promise<DatabaseColumn[]> {
+    const db = await this.getDatabase(connection);
+
+    // Schema ve tablo isimlerini SQL identifier olarak güvenli şekilde kaçır.
+    const escapedSchema = schema.replace(/"/g, '""');
+    const escapedTable = table.replace(/"/g, '""');
+
+    const columns = db
+      .prepare(`PRAGMA "${escapedSchema}".table_info("${escapedTable}")`)
+      .all() as Array<{
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+      pk: number;
+    }>;
+
+    const foreignKeys = db
+      .prepare(`PRAGMA "${escapedSchema}".foreign_key_list("${escapedTable}")`)
+      .all() as Array<{
+      id: number;
+      seq: number;
+      table: string;
+      from: string;
+      to: string;
+    }>;
+
+    const foreignKeyColumns = new Set(
+      foreignKeys.map((foreignKey) => foreignKey.from),
+    );
+
+    return columns.map((column) => ({
+      name: column.name,
+      dataType: column.type || 'BLOB',
+      nullable: column.notnull === 0 && column.pk === 0,
+      defaultValue: column.dflt_value,
+      isPrimaryKey: column.pk > 0,
+      isForeignKey: foreignKeyColumns.has(column.name),
+      position: column.cid + 1,
+    }));
+  }
+
+  release(connectionId: string): Promise<void> {
+    return this.handles.release(connectionId);
+  }
+
+  releaseAll(): Promise<void> {
+    return this.handles.releaseAll();
   }
 }

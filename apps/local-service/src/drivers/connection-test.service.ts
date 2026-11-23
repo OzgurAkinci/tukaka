@@ -1,46 +1,23 @@
 
-import {
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
-import { ConnectionsService } from '../connections/connections.service';
-import { CredentialService } from '../credentials/credential.service';
-import { DriverFactory } from './driver.factory';
+import { ConnectionContextService } from './connection-context.service';
 
 @Injectable()
 export class ConnectionTestService {
   private readonly logger = new Logger(ConnectionTestService.name);
 
-  constructor(
-    private readonly connectionsService: ConnectionsService,
-    private readonly credentialService: CredentialService,
-    private readonly driverFactory: DriverFactory,
-  ) {}
+  constructor(private readonly contextService: ConnectionContextService) {}
 
   async testConnection(id: string) {
-    const connection = this.connectionsService.findOne(id);
-
-    const password =
-      connection.type === 'sqlite'
-        ? null
-        : this.credentialService.getPassword(id);
-
-    if (connection.type !== 'sqlite' && !password) {
-      throw new ServiceUnavailableException(
-        'No saved password found for this connection.',
-      );
-    }
-
-    const driver = this.driverFactory.getDriver(connection);
+    const { connection, password, driver } = this.contextService.resolve(id);
 
     try {
       await driver.testConnection(connection, password);
 
-      this.logger.log(
-        `Connection test successful: ${connection.name}`,
-      );
+      this.contextService.markConnected(connection.id);
+
+      this.logger.log(`Connection test successful: ${connection.name}`);
 
       return {
         success: true,
@@ -49,9 +26,7 @@ export class ConnectionTestService {
       };
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : 'Unknown connection error.';
+        error instanceof Error ? error.message : 'Unknown connection error.';
 
       this.logger.warn(
         `Connection test failed for ${connection.name}: ${message}`,

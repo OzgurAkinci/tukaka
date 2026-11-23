@@ -1,5 +1,5 @@
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { basicSetup } from 'codemirror';
 import { EditorView } from '@codemirror/view';
 import { sql, PostgreSQL } from '@codemirror/lang-sql';
@@ -54,8 +54,10 @@ export default function SqlEditor({ value, onChange }: SqlEditorProps) {
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
 
-  // Her render'da güncel callback'i sakla.
-  onChangeRef.current = onChange;
+  // Güncel callback'i sakla (ref render sırasında değil, commit sonrası güncellenir).
+  useLayoutEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   // Editör örneğini yalnızca bir kez oluştur.
   useEffect(() => {

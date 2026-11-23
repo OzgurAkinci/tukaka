@@ -9,6 +9,7 @@ import { ConnectionTestService } from './connection-test.service';
 import { ConnectionTestController } from './connection-test.controller';
 import { ConnectionQueryService } from './connection-query.service';
 import { DatabaseExplorerService } from './database-explorer.service';
+import { ConnectionContextService } from './connection-context.service';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { DatabaseExplorerService } from './database-explorer.service';
   ],
   providers: [
     DriverFactory,
+    ConnectionContextService,
     ConnectionTestService,
     ConnectionQueryService,
     DatabaseExplorerService,

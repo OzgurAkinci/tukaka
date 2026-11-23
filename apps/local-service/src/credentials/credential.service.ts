@@ -1,5 +1,5 @@
 
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Entry } from '@napi-rs/keyring';
 
 @Injectable()
@@ -20,7 +20,7 @@ export class CredentialService {
     password: string,
   ): void {
     if (!password) {
-      throw new Error('Password cannot be empty.');
+      throw new BadRequestException('Password cannot be empty.');
     }
 
     const entry = this.getEntry(connectionId);

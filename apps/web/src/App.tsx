@@ -34,6 +34,8 @@ import {
   type QueryResult,
   type DatabaseSchema,
   type DatabaseTable,
+  type DatabaseColumn,
+  type ColumnsResponse,
 } from './services/connections';
 
 import type { ConnectionConfig } from './components/ConnectionDialog';
@@ -70,6 +72,20 @@ function App() {
   const [connections, setConnections] = useState<ConnectionProfile[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
+
+  // Table Structure states
+  const [selectedTable, setSelectedTable] = useState<{
+    connectionId: string;
+    schema: string;
+    table: string;
+    type: 'table' | 'view';
+  } | null>(null);
+
+  const [tableColumns, setTableColumns] = useState<DatabaseColumn[]>([]);
+  const [tableColumnsLoading, setTableColumnsLoading] = useState(false);
+  const [tableColumnsError, setTableColumnsError] = useState<string | null>(null);
+
+  const [tableView, setTableView] = useState<'structure' | 'data'>('structure');
 
   // Database Explorer states
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
@@ -169,6 +185,7 @@ function App() {
           host: config.host,
           port: config.port,
           username: config.username,
+          sslMode: config.sslMode,
         }),
       });
 
@@ -220,6 +237,7 @@ function App() {
             host: config.host,
             port: config.port,
             username: config.username,
+            sslMode: config.sslMode,
           }),
         },
       );
@@ -467,6 +485,44 @@ function App() {
     }
   };
 
+  const openTable = async (
+    connectionId: string,
+    schema: string,
+    table: string,
+    type: 'table' | 'view',
+  ) => {
+    setSelectedTable({
+      connectionId,
+      schema,
+      table,
+      type,
+    });
+
+    setSelectedConnectionId(connectionId);
+    setTableView('structure');
+    setTableColumns([]);
+    setTableColumnsError(null);
+    setTableColumnsLoading(true);
+
+    try {
+      const response: ColumnsResponse = await connectionsApi.getColumns(
+        connectionId,
+        schema,
+        table,
+      );
+
+      setTableColumns(response.columns);
+    } catch (error) {
+      setTableColumnsError(
+        error instanceof Error
+          ? error.message
+          : 'Table columns could not be loaded.',
+      );
+    } finally {
+      setTableColumnsLoading(false);
+    }
+  };
+
   const runQuery = async () => {
     if (!selectedConnectionId) {
       setQueryError('Please select a database connection.');
@@ -619,8 +675,8 @@ function App() {
                     {/* Connection row */}
                     <div
                       className={`group flex items-center rounded-md ${selectedConnectionId === connection.id
-                          ? 'bg-[#252a34]'
-                          : 'hover:bg-[#252a34]'
+                        ? 'bg-[#252a34]'
+                        : 'hover:bg-[#252a34]'
                         }`}
                     >
                       {/* Expand / collapse */}
@@ -654,8 +710,8 @@ function App() {
                           {connectionTestStatuses[connection.id]?.message && (
                             <span
                               className={`block mt-1 text-[10px] truncate ${connectionTestStatuses[connection.id].success
-                                  ? 'text-emerald-400'
-                                  : 'text-red-400'
+                                ? 'text-emerald-400'
+                                : 'text-red-400'
                                 }`}
                               title={connectionTestStatuses[connection.id].message}
                             >
@@ -834,11 +890,25 @@ function App() {
                                       </p>
                                     )}
 
+
                                   {tablesBySchema[schemaKey]?.map((table) => (
-                                    <div
+                                    <button
                                       key={`${schemaKey}:${table.name}`}
+                                      onClick={() =>
+                                        openTable(
+                                          connection.id,
+                                          schema.name,
+                                          table.name,
+                                          table.type,
+                                        )
+                                      }
                                       title={`${table.type}: ${table.name}`}
-                                      className="flex items-center gap-2 px-2 py-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-white/5"
+                                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left ${selectedTable?.connectionId === connection.id &&
+                                        selectedTable?.schema === schema.name &&
+                                        selectedTable?.table === table.name
+                                        ? 'bg-[#252a34] text-white'
+                                        : 'text-gray-500 hover:text-gray-200 hover:bg-white/5'
+                                        }`}
                                     >
                                       <Table2
                                         size={12}
@@ -858,8 +928,9 @@ function App() {
                                           VIEW
                                         </span>
                                       )}
-                                    </div>
+                                    </button>
                                   ))}
+
                                 </div>
                               )}
                             </div>
@@ -909,253 +980,497 @@ function App() {
 
         {/* Main workspace */}
         <main className="flex-1 min-w-0 flex flex-col">
-          {/* Tabs */}
-          <div className="h-11 shrink-0 flex items-center border-b border-[#292d36] bg-[#171a21]">
-            <button
-              onClick={() => setActiveTab('query-1')}
-              className={`h-full px-4 flex items-center gap-2 border-r border-[#292d36] text-xs ${activeTab === 'query-1'
-                ? 'bg-[#111318] text-white border-t-2 border-t-blue-500'
-                : 'text-gray-500 hover:text-gray-300'
-                }`}
-            >
-              <FileCode2 size={14} className="text-blue-400" />
-              query-1.sql
-              <X size={13} className="ml-2 text-gray-600" />
-            </button>
+          {selectedTable ? (
+            <div className="flex-1 min-h-0 flex flex-col bg-[#111318]">
 
-            <button
-              onClick={() => setActiveTab('query-2')}
-              className={`h-full px-4 flex items-center gap-2 border-r border-[#292d36] text-xs ${activeTab === 'query-2'
-                ? 'bg-[#111318] text-white border-t-2 border-t-blue-500'
-                : 'text-gray-500 hover:text-gray-300'
-                }`}
-            >
-              <FileCode2 size={14} className="text-gray-500" />
-              query-2.sql
-              <X size={13} className="ml-2 text-gray-600" />
-            </button>
+              {/* Table header */}
+              <div className="h-14 shrink-0 flex items-center justify-between px-5 border-b border-[#292d36] bg-[#171a21]">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Table2 size={18} className="text-sky-400" />
 
-            <button
-              onClick={() => setIsConnectionDialogOpen(true)}
-              title="New Connection" className="p-2 ml-1 text-gray-500 hover:text-white">
-              <Plus size={16} />
-            </button>
-          </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-white">
+                        {selectedTable.table}
+                      </span>
 
-          {/* Connection toolbar */}
-          <div className="h-12 shrink-0 flex items-center justify-between px-4 border-b border-[#292d36] bg-[#14171d]">
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedConnectionId ?? ''}
-                onChange={(event) => setSelectedConnectionId(event.target.value || null)}
-                className="px-3 py-1.5 rounded border border-[#303541] bg-[#1c2029] text-xs text-gray-200 outline-none"
-              >
-                <option value="">Select connection</option>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#292e39] text-gray-400 uppercase">
+                        {selectedTable.type}
+                      </span>
+                    </div>
 
-                {connections.map((connection) => (
-                  <option key={connection.id} value={connection.id}>
-                    {connection.name} ({connection.type})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={runQuery}
-                disabled={running}
-                className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium"
-              >
-                <Play size={13} fill="currentColor" />
-                {running ? 'Running...' : 'Run'}
-              </button>
-
-              <button
-                onClick={() => setQuery('')}
-                className="p-2 rounded hover:bg-[#292e39] text-gray-400"
-                title="Clear editor"
-              >
-                <X size={15} />
-              </button>
-
-              <button className="p-2 rounded hover:bg-[#292e39] text-gray-400" title="Save">
-                <Save size={15} />
-              </button>
-
-              <button className="p-2 rounded hover:bg-[#292e39] text-gray-400" title="More">
-                <MoreHorizontal size={17} />
-              </button>
-            </div>
-          </div>
-
-          {/* SQL editor */}
-          <section className="flex-1 min-h-[180px] min-w-0 flex bg-[#111318]">
-            <SqlEditor
-              value={query}
-              onChange={setQuery}
-            />
-          </section>
-
-          {/* Results */}
-          <section className="h-[42%] min-h-[220px] flex flex-col border-t border-[#303541] bg-[#151820]">
-            <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-[#292d36]">
-              <div className="flex items-center h-full gap-5">
-                <button
-                  onClick={() => setActivePanel('results')}
-                  className={`h-full flex items-center gap-2 text-xs border-b-2 ${activePanel === 'results'
-                    ? 'border-blue-500 text-white'
-                    : 'border-transparent text-gray-500'
-                    }`}
-                >
-                  <Table2 size={14} />
-                  Results
-                </button>
+                    <div className="text-[10px] text-gray-500 truncate">
+                      {selectedTable.schema} · {
+                        connections.find(
+                          (item) => item.id === selectedTable.connectionId
+                        )?.name
+                      }
+                    </div>
+                  </div>
+                </div>
 
                 <button
-                  onClick={() => setActivePanel('messages')}
-                  className={`h-full flex items-center gap-2 text-xs border-b-2 ${activePanel === 'messages'
-                    ? 'border-blue-500 text-white'
-                    : 'border-transparent text-gray-500'
-                    }`}
+                  onClick={() => setSelectedTable(null)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded text-xs text-gray-400 hover:text-white hover:bg-[#292e39]"
                 >
-                  <Terminal size={14} />
-                  Messages
+                  <FileCode2 size={14} />
+                  Back to SQL
                 </button>
               </div>
 
-              <div className="flex items-center gap-3 text-gray-500">
-                <button title="Refresh" className="hover:text-white">
-                  <RefreshCw size={14} />
+              {/* Table tabs */}
+              <div className="h-10 shrink-0 flex items-center gap-5 px-5 border-b border-[#292d36] bg-[#171a21]">
+                <button
+                  onClick={() => setTableView('structure')}
+                  className={`h-full flex items-center gap-2 text-xs border-b-2 ${tableView === 'structure'
+                    ? 'border-blue-500 text-white'
+                    : 'border-transparent text-gray-500 hover:text-gray-300'
+                    }`}
+                >
+                  <Settings size={13} />
+                  Structure
                 </button>
-                <button title="Export CSV" className="hover:text-white">
-                  <Download size={15} />
-                </button>
-                <button title="More" className="hover:text-white">
-                  <MoreHorizontal size={17} />
+
+                <button
+                  onClick={() => setTableView('data')}
+                  className={`h-full flex items-center gap-2 text-xs border-b-2 ${tableView === 'data'
+                    ? 'border-blue-500 text-white'
+                    : 'border-transparent text-gray-500 hover:text-gray-300'
+                    }`}
+                >
+                  <Table2 size={13} />
+                  Data
                 </button>
               </div>
-            </div>
 
-            {activePanel === 'results' ? (
-              <div className="flex-1 overflow-auto">
+              {/* Table content */}
+              <div className="flex-1 min-h-0 overflow-auto">
 
-                {queryResult && queryResult.columns.length > 0 ? (
-                  <table className="w-full border-collapse text-left">
-                    <thead className="sticky top-0 bg-[#1b1f28]">
-                      <tr>
-                        {queryResult.columns.map((column) => (
-                          <th
-                            key={column}
-                            className="px-4 py-3 border-b border-r border-[#303541] text-[11px] font-semibold text-gray-400 whitespace-nowrap"
-                          >
-                            {column}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
+                {tableView === 'structure' && (
+                  <>
+                    {tableColumnsLoading && (
+                      <div className="flex items-center justify-center gap-2 h-40 text-xs text-gray-500">
+                        <Loader2 size={16} className="animate-spin" />
+                        Loading table structure...
+                      </div>
+                    )}
 
-                    <tbody>
-                      {queryResult.rows.map((row, rowIndex) => (
-                        <tr
-                          key={rowIndex}
-                          className="hover:bg-[#202530]"
+                    {tableColumnsError && (
+                      <div className="flex flex-col items-center justify-center gap-3 h-40">
+                        <p className="text-xs text-red-400">
+                          {tableColumnsError}
+                        </p>
+
+                        <button
+                          onClick={() =>
+                            openTable(
+                              selectedTable.connectionId,
+                              selectedTable.schema,
+                              selectedTable.table,
+                              selectedTable.type,
+                            )
+                          }
+                          className="flex items-center gap-2 px-3 py-1.5 rounded bg-[#252a34] text-xs text-gray-300 hover:bg-[#303746]"
                         >
-                          {queryResult.columns.map((column) => {
-                            const value = row[column];
+                          <RefreshCw size={12} />
+                          Try again
+                        </button>
+                      </div>
+                    )}
 
-                            return (
-                              <td
-                                key={`${rowIndex}-${column}`}
-                                className="px-4 py-2.5 border-b border-r border-[#292d36] text-xs text-gray-300 whitespace-nowrap"
+                    {!tableColumnsLoading &&
+                      !tableColumnsError &&
+                      tableColumns.length === 0 && (
+                        <div className="flex items-center justify-center h-40 text-xs text-gray-500">
+                          No columns found.
+                        </div>
+                      )}
+
+                    {!tableColumnsLoading &&
+                      !tableColumnsError &&
+                      tableColumns.length > 0 && (
+                        <table className="w-full border-collapse text-left">
+                          <thead className="sticky top-0 bg-[#1b1f28]">
+                            <tr>
+                              {[
+                                '#',
+                                'Column',
+                                'Data Type',
+                                'Nullable',
+                                'Key',
+                                'Default',
+                              ].map((heading) => (
+                                <th
+                                  key={heading}
+                                  className="px-4 py-3 border-b border-r border-[#303541] text-[11px] font-semibold text-gray-400 whitespace-nowrap"
+                                >
+                                  {heading}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            {tableColumns.map((column) => (
+                              <tr
+                                key={column.name}
+                                className="hover:bg-[#202530] transition"
                               >
-                                {value === null || value === undefined ? (
-                                  <span className="text-gray-600 italic">
-                                    NULL
-                                  </span>
-                                ) : typeof value === 'boolean' ? (
-                                  <span className={value ? 'text-emerald-400' : 'text-gray-500'}>
-                                    {String(value)}
-                                  </span>
-                                ) : (
-                                  formatCellValue(value)
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : queryResult ? (
-                  <div className="p-6 text-center">
-                    <CheckCircle2
-                      size={24}
-                      className="mx-auto mb-2 text-emerald-500"
-                    />
+                                <td className="px-4 py-3 border-b border-r border-[#292d36] text-[11px] text-gray-600">
+                                  {column.position}
+                                </td>
 
-                    <p className="text-sm text-gray-300">
-                      Query executed successfully.
-                    </p>
+                                <td className="px-4 py-3 border-b border-r border-[#292d36] text-xs text-gray-200 font-medium">
+                                  {column.name}
+                                </td>
 
-                    <p className="mt-1 text-xs text-gray-500">
-                      {queryResult.rowCount} row(s) affected.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-gray-600">
-                    Run a query to see results.
-                  </div>
+                                <td className="px-4 py-3 border-b border-r border-[#292d36] text-xs text-sky-300">
+                                  {column.dataType}
+                                </td>
+
+                                <td className="px-4 py-3 border-b border-r border-[#292d36] text-xs">
+                                  {column.nullable ? (
+                                    <span className="text-gray-400">YES</span>
+                                  ) : (
+                                    <span className="text-gray-300">NO</span>
+                                  )}
+                                </td>
+
+                                <td className="px-4 py-3 border-b border-r border-[#292d36]">
+                                  <div className="flex items-center gap-1.5">
+                                    {column.isPrimaryKey && (
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">
+                                        PK
+                                      </span>
+                                    )}
+
+                                    {column.isForeignKey && (
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">
+                                        FK
+                                      </span>
+                                    )}
+
+                                    {!column.isPrimaryKey &&
+                                      !column.isForeignKey && (
+                                        <span className="text-gray-700">—</span>
+                                      )}
+                                  </div>
+                                </td>
+
+                                <td className="px-4 py-3 border-b border-r border-[#292d36] text-xs text-gray-400">
+                                  {column.defaultValue ?? '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                  </>
                 )}
 
-              </div>
-            ) : (
-              <div className="flex-1 overflow-auto p-4 text-xs">
-                {queryError ? (
-                  <div className="text-red-400 whitespace-pre-wrap">
-                    <div className="mb-2 font-semibold">
-                      Query execution failed
-                    </div>
-                    {queryError}
-                  </div>
-                ) : queryResult ? (
-                  <div className="text-emerald-400">
-                    <div className="mb-2 font-semibold">
-                      Query executed successfully
-                    </div>
+                {tableView === 'data' && (
+                  <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-center">
+                    <Table2 size={28} className="text-gray-600 mb-3" />
 
-                    <div className="text-gray-400">
-                      Rows: {queryResult.rowCount}
-                    </div>
+                    <p className="text-sm text-gray-400">
+                      Data Viewer
+                    </p>
 
-                    <div className="text-gray-400">
-                      Duration: {queryResult.durationMs} ms
-                    </div>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Table data browsing will be implemented in the next step.
+                    </p>
                   </div>
-                ) : (
-                  <span className="text-gray-500">
-                    Henüz sorgu çalıştırılmadı.
-                  </span>
                 )}
               </div>
-            )}
 
-            <div className="h-8 shrink-0 px-4 flex items-center justify-between border-t border-[#292d36] text-[10px] text-gray-500">
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 size={12} className="text-emerald-500" />
-                  {running ? 'Running' : 'Ready'}
-                </span>
+              {/* Structure footer */}
+              <div className="h-8 shrink-0 px-4 flex items-center justify-between border-t border-[#292d36] text-[10px] text-gray-500">
                 <span>
-                  {queryResult ? `${queryResult.rowCount} rows` : '0 rows'}
+                  {tableColumnsLoading
+                    ? 'Loading'
+                    : `${tableColumns.length} columns`}
                 </span>
 
-                {queryResult && (
-                  <span>{queryResult.durationMs} ms</span>
-                )}
+                <span>
+                  {selectedTable.schema}.{selectedTable.table}
+                </span>
               </div>
-              <span>UTF-8 · SQL</span>
             </div>
-          </section>
+          ) : (
+            <>
+              {/* Mevcut SQL ekranı burada devam edecek */}
+
+              {/* Tabs */}
+              <div className="h-11 shrink-0 flex items-center border-b border-[#292d36] bg-[#171a21]">
+                <button
+                  onClick={() => setActiveTab('query-1')}
+                  className={`h-full px-4 flex items-center gap-2 border-r border-[#292d36] text-xs ${activeTab === 'query-1'
+                    ? 'bg-[#111318] text-white border-t-2 border-t-blue-500'
+                    : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                >
+                  <FileCode2 size={14} className="text-blue-400" />
+                  query-1.sql
+                  <X size={13} className="ml-2 text-gray-600" />
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('query-2')}
+                  className={`h-full px-4 flex items-center gap-2 border-r border-[#292d36] text-xs ${activeTab === 'query-2'
+                    ? 'bg-[#111318] text-white border-t-2 border-t-blue-500'
+                    : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                >
+                  <FileCode2 size={14} className="text-gray-500" />
+                  query-2.sql
+                  <X size={13} className="ml-2 text-gray-600" />
+                </button>
+
+                <button
+                  onClick={() => setIsConnectionDialogOpen(true)}
+                  title="New Connection" className="p-2 ml-1 text-gray-500 hover:text-white">
+                  <Plus size={16} />
+                </button>
+              </div>
+
+              {/* Connection toolbar */}
+              <div className="h-12 shrink-0 flex items-center justify-between px-4 border-b border-[#292d36] bg-[#14171d]">
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedConnectionId ?? ''}
+                    onChange={(event) => setSelectedConnectionId(event.target.value || null)}
+                    className="px-3 py-1.5 rounded border border-[#303541] bg-[#1c2029] text-xs text-gray-200 outline-none"
+                  >
+                    <option value="">Select connection</option>
+
+                    {connections.map((connection) => (
+                      <option key={connection.id} value={connection.id}>
+                        {connection.name} ({connection.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={runQuery}
+                    disabled={running}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium"
+                  >
+                    <Play size={13} fill="currentColor" />
+                    {running ? 'Running...' : 'Run'}
+                  </button>
+
+                  <button
+                    onClick={() => setQuery('')}
+                    className="p-2 rounded hover:bg-[#292e39] text-gray-400"
+                    title="Clear editor"
+                  >
+                    <X size={15} />
+                  </button>
+
+                  <button className="p-2 rounded hover:bg-[#292e39] text-gray-400" title="Save">
+                    <Save size={15} />
+                  </button>
+
+                  <button className="p-2 rounded hover:bg-[#292e39] text-gray-400" title="More">
+                    <MoreHorizontal size={17} />
+                  </button>
+                </div>
+              </div>
+
+              {/* SQL editor */}
+              <section className="flex-1 min-h-[180px] min-w-0 flex bg-[#111318]">
+                <SqlEditor
+                  value={query}
+                  onChange={setQuery}
+                />
+              </section>
+
+              {/* Results */}
+              <section className="h-[42%] min-h-[220px] flex flex-col border-t border-[#303541] bg-[#151820]">
+                <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-[#292d36]">
+                  <div className="flex items-center h-full gap-5">
+                    <button
+                      onClick={() => setActivePanel('results')}
+                      className={`h-full flex items-center gap-2 text-xs border-b-2 ${activePanel === 'results'
+                        ? 'border-blue-500 text-white'
+                        : 'border-transparent text-gray-500'
+                        }`}
+                    >
+                      <Table2 size={14} />
+                      Results
+                    </button>
+
+                    <button
+                      onClick={() => setActivePanel('messages')}
+                      className={`h-full flex items-center gap-2 text-xs border-b-2 ${activePanel === 'messages'
+                        ? 'border-blue-500 text-white'
+                        : 'border-transparent text-gray-500'
+                        }`}
+                    >
+                      <Terminal size={14} />
+                      Messages
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-gray-500">
+                    <button title="Refresh" className="hover:text-white">
+                      <RefreshCw size={14} />
+                    </button>
+                    <button title="Export CSV" className="hover:text-white">
+                      <Download size={15} />
+                    </button>
+                    <button title="More" className="hover:text-white">
+                      <MoreHorizontal size={17} />
+                    </button>
+                  </div>
+                </div>
+
+                {activePanel === 'results' ? (
+                  <div className="flex-1 overflow-auto">
+
+                    {queryResult && queryResult.columns.length > 0 ? (
+                      <table className="w-full border-collapse text-left">
+                        <thead className="sticky top-0 bg-[#1b1f28]">
+                          <tr>
+                            {queryResult.columns.map((column) => (
+                              <th
+                                key={column}
+                                className="px-4 py-3 border-b border-r border-[#303541] text-[11px] font-semibold text-gray-400 whitespace-nowrap"
+                              >
+                                {column}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {queryResult.rows.map((row, rowIndex) => (
+                            <tr
+                              key={rowIndex}
+                              className="hover:bg-[#202530]"
+                            >
+                              {queryResult.columns.map((column) => {
+                                const value = row[column];
+
+                                return (
+                                  <td
+                                    key={`${rowIndex}-${column}`}
+                                    className="px-4 py-2.5 border-b border-r border-[#292d36] text-xs text-gray-300 whitespace-nowrap"
+                                  >
+                                    {value === null || value === undefined ? (
+                                      <span className="text-gray-600 italic">
+                                        NULL
+                                      </span>
+                                    ) : typeof value === 'boolean' ? (
+                                      <span className={value ? 'text-emerald-400' : 'text-gray-500'}>
+                                        {String(value)}
+                                      </span>
+                                    ) : (
+                                      formatCellValue(value)
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : queryResult ? (
+                      <div className="p-6 text-center">
+                        <CheckCircle2
+                          size={24}
+                          className="mx-auto mb-2 text-emerald-500"
+                        />
+
+                        <p className="text-sm text-gray-300">
+                          Query executed successfully.
+                        </p>
+
+                        <p className="mt-1 text-xs text-gray-500">
+                          {queryResult.rowCount} row(s) affected.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                        Run a query to see results.
+                      </div>
+                    )}
+
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-auto p-4 text-xs">
+                    {queryError ? (
+                      <div className="text-red-400 whitespace-pre-wrap">
+                        <div className="mb-2 font-semibold">
+                          Query execution failed
+                        </div>
+                        {queryError}
+                      </div>
+                    ) : queryResult ? (
+                      <div className="text-emerald-400">
+                        <div className="mb-2 font-semibold">
+                          Query executed successfully
+                        </div>
+
+                        <div className="text-gray-400">
+                          Rows: {queryResult.rowCount}
+                        </div>
+
+                        <div className="text-gray-400">
+                          Duration: {queryResult.durationMs} ms
+                        </div>
+
+                        {queryResult.statementCount !== null &&
+                          queryResult.statementCount > 1 && (
+                            <div className="text-gray-400">
+                              Statements: {queryResult.statementCount} (showing
+                              result of the last one)
+                            </div>
+                          )}
+
+                        {queryResult.truncated && (
+                          <div className="mt-2 text-amber-400">
+                            Result truncated to the first {queryResult.rowCount}{' '}
+                            rows.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-500">
+                        Henüz sorgu çalıştırılmadı.
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="h-8 shrink-0 px-4 flex items-center justify-between border-t border-[#292d36] text-[10px] text-gray-500">
+                  <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 size={12} className="text-emerald-500" />
+                      {running ? 'Running' : 'Ready'}
+                    </span>
+                    <span>
+                      {queryResult ? `${queryResult.rowCount} rows` : '0 rows'}
+                    </span>
+
+                    {queryResult?.truncated && (
+                      <span className="text-amber-400">
+                        Limited to first {queryResult.rowCount} rows
+                      </span>
+                    )}
+
+                    {queryResult && (
+                      <span>{queryResult.durationMs} ms</span>
+                    )}
+                  </div>
+                  <span>UTF-8 · SQL</span>
+                </div>
+
+              </section>
+            </>
+          )}
         </main>
       </div>
 

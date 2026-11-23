@@ -1,11 +1,17 @@
 
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+    BadRequestException,
+    Injectable,
+    InternalServerErrorException,
+    NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { DatabaseService } from '../database/database.service';
 import { CreateConnectionDto } from './dto/create-connection.dto';
 import { UpdateConnectionDto } from './dto/update-connection.dto';
 import { CredentialService } from '../credentials/credential.service';
+import { ConnectionEventsService } from './connection-events.service';
 
 
 export interface ConnectionProfile {
@@ -29,6 +35,7 @@ export class ConnectionsService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly credentialService: CredentialService,
+        private readonly connectionEvents: ConnectionEventsService,
     ) { }
 
     create(dto: CreateConnectionDto): ConnectionProfile {
@@ -70,7 +77,7 @@ export class ConnectionsService {
             });
 
         if (result.changes !== 1) {
-            throw new Error('Connection profile could not be created.');
+            throw new InternalServerErrorException('Connection profile could not be created.');
         }
 
         return this.findOne(id);
@@ -146,11 +153,13 @@ export class ConnectionsService {
                 ...updated,
             });
 
+        this.connectionEvents.invalidate(id);
+
         return this.findOne(id);
     }
 
     remove(id: string): void {
-        const connection = this.findOne(id);
+        this.findOne(id);
 
         // Önce işletim sistemi güvenli kasasındaki şifreyi sil.
         this.credentialService.deletePassword(id);
@@ -165,8 +174,24 @@ export class ConnectionsService {
             .run(id);
 
         if (result.changes !== 1) {
-            throw new Error('Connection profile could not be deleted.');
+            throw new InternalServerErrorException('Connection profile could not be deleted.');
         }
+
+        this.connectionEvents.invalidate(id);
+    }
+
+    /**
+     * Başarılı bir bağlantı/sorgu sonrasında son bağlantı zamanını günceller.
+     */
+    markConnected(id: string): void {
+        this.databaseService
+            .getDatabase()
+            .prepare(`
+      UPDATE connection_profiles
+      SET last_connected_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `)
+            .run(id);
     }
 
 }

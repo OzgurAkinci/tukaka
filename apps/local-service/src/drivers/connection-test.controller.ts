@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
 
@@ -21,28 +22,43 @@ export class ConnectionTestController {
   ) {}
 
   @Post(':id/test')
-  testConnection(@Param('id') id: string) {
+  testConnection(@Param('id', ParseUUIDPipe) id: string) {
     return this.connectionTestService.testConnection(id);
   }
 
   @Post(':id/query')
   executeQuery(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ExecuteQueryDto,
   ) {
     return this.connectionQueryService.executeQuery(id, dto);
   }
 
   @Get(':id/schemas')
-  getSchemas(@Param('id') id: string) {
+  getSchemas(@Param('id', ParseUUIDPipe) id: string) {
     return this.databaseExplorerService.getSchemas(id);
   }
 
   @Get(':id/schemas/:schema/tables')
   getTables(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Param('schema') schema: string,
   ) {
     return this.databaseExplorerService.getTables(id, schema);
   }
+
+
+  @Get(':id/schemas/:schema/tables/:table/columns')
+  getColumns(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('schema') schema: string,
+    @Param('table') table: string,
+  ) {
+    return this.databaseExplorerService.getColumns(
+      id,
+      schema,
+      table,
+    );
+  }
+
 }

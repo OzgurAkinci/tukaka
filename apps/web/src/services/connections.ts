@@ -41,6 +41,8 @@ export interface QueryResult {
     rows: Record<string, unknown>[];
     rowCount: number;
     durationMs: number;
+    truncated: boolean;
+    statementCount: number | null;
 }
 
 
@@ -53,6 +55,26 @@ export interface DatabaseTable {
     schema: string;
     type: 'table' | 'view';
 }
+
+
+export interface DatabaseColumn {
+    name: string;
+    dataType: string;
+    nullable: boolean;
+    defaultValue: string | null;
+    isPrimaryKey: boolean;
+    isForeignKey: boolean;
+    position: number;
+}
+
+export interface ColumnsResponse {
+    success: boolean;
+    connectionId: string;
+    schema: string;
+    table: string;
+    columns: DatabaseColumn[];
+}
+
 
 export interface SchemasResponse {
     success: boolean;
@@ -71,25 +93,61 @@ export interface TablesResponse {
 export interface ExecuteQueryPayload {
     sql: string;
     parameters?: unknown[];
+    maxRows?: number;
+    timeoutMs?: number;
+}
+
+/**
+ * NestJS hata gövdesinden ({ message, error, statusCode }) okunabilir mesaj çıkarır.
+ */
+async function readErrorMessage(response: Response): Promise<string> {
+    const body = await response.text();
+
+    try {
+        const parsed = JSON.parse(body) as { message?: unknown };
+
+        if (Array.isArray(parsed.message)) {
+            return parsed.message.join('\n');
+        }
+
+        if (typeof parsed.message === 'string' && parsed.message) {
+            return parsed.message;
+        }
+    } catch {
+        // JSON değil; ham metni kullan.
+    }
+
+    return body || `API error: ${response.status}`;
+}
+
+function getSessionToken(): string | undefined {
+    return (
+        window.desktopAPI?.sessionToken ??
+        import.meta.env.VITE_LOCAL_SERVICE_TOKEN ??
+        undefined
+    );
 }
 
 async function request<T>(
     endpoint: string,
     options: RequestInit = {},
 ): Promise<T> {
+    const sessionToken = getSessionToken();
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
+            ...(sessionToken && {
+                Authorization: `Bearer ${sessionToken}`,
+            }),
             ...options.headers,
         },
     });
 
     if (!response.ok) {
-        const errorBody = await response.text();
-
         throw new Error(
-            errorBody || `API error: ${response.status}`,
+            await readErrorMessage(response),
         );
     }
 
@@ -189,6 +247,18 @@ export const connectionsApi = {
             `/connections/${id}/schemas/${encodeURIComponent(schema)}/tables`,
         );
     },
+
+
+    getColumns(
+        id: string,
+        schema: string,
+        table: string,
+    ): Promise<ColumnsResponse> {
+        return request<ColumnsResponse>(
+            `/connections/${id}/schemas/${encodeURIComponent(schema)}/tables/${encodeURIComponent(table)}/columns`,
+        );
+    },
+
 
 
     executeQuery(

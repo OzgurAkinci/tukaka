@@ -2,6 +2,7 @@
 const { app, BrowserWindow, dialog } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
+const crypto = require('crypto');
 
 app.setName('TUKAKA Database Studio');
 
@@ -12,6 +13,10 @@ const WEB_URL = 'http://127.0.0.1:5173';
 
 let mainWindow = null;
 let localServiceProcess = null;
+
+// Her açılışta yeni bir oturum token'ı üretilir. Local service yalnızca bu
+// token'ı taşıyan istekleri kabul eder; arayüz token'ı preload üzerinden alır.
+const sessionToken = crypto.randomBytes(32).toString('hex');
 
 function startLocalService() {
   console.log('Starting TUKAKA Local Service...');
@@ -26,6 +31,10 @@ function startLocalService() {
       shell: isWindows,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        TUKAKA_SESSION_TOKEN: sessionToken,
+      },
     },
   );
 
@@ -85,6 +94,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: [`--tukaka-session-token=${sessionToken}`],
     },
   });
 

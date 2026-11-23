@@ -5,6 +5,7 @@ import { ConnectionsController } from './connections.controller';
 import { ConnectionsService } from './connections.service';
 import { CredentialModule } from '../credentials/credential.module';
 import { CredentialController } from './credential.controller';
+import { ConnectionEventsService } from './connection-events.service';
 
 @Module({
   imports: [CredentialModule],
@@ -12,7 +13,7 @@ import { CredentialController } from './credential.controller';
     ConnectionsController,
     CredentialController,
   ],
-  providers: [ConnectionsService],
-  exports: [ConnectionsService],
+  providers: [ConnectionsService, ConnectionEventsService],
+  exports: [ConnectionsService, ConnectionEventsService],
 })
 export class ConnectionsModule {}

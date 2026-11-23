@@ -1,121 +1,97 @@
 
 import {
+  BadGatewayException,
+  HttpException,
   Injectable,
   Logger,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 
-import { ConnectionsService } from '../connections/connections.service';
-import { CredentialService } from '../credentials/credential.service';
-import { DriverFactory } from './driver.factory';
+import { ConnectionContextService } from './connection-context.service';
 
 @Injectable()
 export class DatabaseExplorerService {
   private readonly logger = new Logger(DatabaseExplorerService.name);
 
-  constructor(
-    private readonly connectionsService: ConnectionsService,
-    private readonly credentialService: CredentialService,
-    private readonly driverFactory: DriverFactory,
-  ) {}
+  constructor(private readonly contextService: ConnectionContextService) {}
 
-  private getConnectionContext(connectionId: string) {
-    const connection = this.connectionsService.findOne(connectionId);
+  async getSchemas(connectionId: string) {
+    const { connection, password, driver } =
+      this.contextService.resolve(connectionId);
 
-    const password =
-      connection.type === 'sqlite'
-        ? null
-        : this.credentialService.getPassword(connectionId);
-
-    if (connection.type !== 'sqlite' && !password) {
-      throw new ServiceUnavailableException(
-        'No saved password found for this connection.',
-      );
-    }
-
-    const driver = this.driverFactory.getDriver(connection);
+    const schemas = await this.run(connection.name, 'Schema retrieval', () =>
+      driver.getSchemas(connection, password),
+    );
 
     return {
-      connection,
-      password,
-      driver,
+      success: true,
+      connectionId,
+      schemas,
     };
   }
 
-  async getSchemas(connectionId: string) {
-    const {
-      connection,
-      password,
-      driver,
-    } = this.getConnectionContext(connectionId);
+  async getTables(connectionId: string, schema: string) {
+    const { connection, password, driver } =
+      this.contextService.resolve(connectionId);
 
-    try {
-      const schemas = await driver.getSchemas(
-        connection,
-        password,
-      );
+    const tables = await this.run(
+      connection.name,
+      `Table retrieval (schema: ${schema})`,
+      () => driver.getTables(connection, password, schema),
+    );
 
-      this.logger.log(
-        `Schemas retrieved. Connection: ${connection.name}, Count: ${schemas.length}`,
-      );
-
-      return {
-        success: true,
-        connectionId,
-        schemas,
-      };
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Schema retrieval failed.';
-
-      this.logger.warn(
-        `Schema retrieval failed. Connection: ${connection.name}, Error: ${message}`,
-      );
-
-      throw error;
-    }
+    return {
+      success: true,
+      connectionId,
+      schema,
+      tables,
+    };
   }
 
-  async getTables(
-    connectionId: string,
-    schema: string,
-  ) {
-    const {
-      connection,
-      password,
-      driver,
-    } = this.getConnectionContext(connectionId);
+  async getColumns(connectionId: string, schema: string, table: string) {
+    const { connection, password, driver } =
+      this.contextService.resolve(connectionId);
 
+    const columns = await this.run(
+      connection.name,
+      `Column retrieval (${schema}.${table})`,
+      () => driver.getColumns(connection, password, schema, table),
+    );
+
+    return {
+      success: true,
+      connectionId,
+      schema,
+      table,
+      columns,
+    };
+  }
+
+  private async run<T extends unknown[]>(
+    connectionName: string,
+    operation: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
     try {
-      const tables = await driver.getTables(
-        connection,
-        password,
-        schema,
-      );
+      const result = await work();
 
       this.logger.log(
-        `Tables retrieved. Connection: ${connection.name}, Schema: ${schema}, Count: ${tables.length}`,
+        `${operation} succeeded. Connection: ${connectionName}, Count: ${result.length}`,
       );
 
-      return {
-        success: true,
-        connectionId,
-        schema,
-        tables,
-      };
+      return result;
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Table retrieval failed.';
+      const message = error instanceof Error ? error.message : String(error);
 
       this.logger.warn(
-        `Table retrieval failed. Connection: ${connection.name}, Schema: ${schema}, Error: ${message}`,
+        `${operation} failed. Connection: ${connectionName}, Error: ${message}`,
       );
 
-      throw error;
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Hedef veritabanından gelen hata: upstream hatası olarak bildir.
+      throw new BadGatewayException(message);
     }
   }
 }
