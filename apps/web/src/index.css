@@ -28,22 +28,29 @@ body {
   min-height: 600px;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-}
+/*
+ * Katmanlı (layer) olmalı: katmansız kurallar Tailwind v4 yardımcı sınıflarını
+ * (ör. text-xs) ezer.
+ */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 
-button {
-  cursor: pointer;
-}
+  button {
+    cursor: pointer;
+  }
 
-button:disabled {
-  cursor: not-allowed;
-}
+  button:disabled {
+    cursor: not-allowed;
+  }
 
-textarea {
-  tab-size: 2;
+  textarea {
+    tab-size: 2;
+  }
 }
 
 ::selection {
