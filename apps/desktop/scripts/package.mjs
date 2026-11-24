@@ -9,6 +9,7 @@
  *   ... --win | --mac | --linux      # hedef platform (varsayılan: bu makine)
  *   ... --x64 | --arm64              # hedef mimari (varsayılan: bu makine)
  *   ... --skip-build                 # web/servis derlemesini atla
+ *   ... --clean                      # önce release/ klasörünü temizle (eski sürümler kalmasın)
  *
  * Adımlar:
  *   1. Web arayüzünü (Vite) ve servisi (tsc) derle.
@@ -177,6 +178,11 @@ function pruneForeignPrebuilds() {
 }
 
 async function main() {
+  if (args.has('--clean')) {
+    step('Cleaning previous release artifacts');
+    rmSync(path.join(desktopDir, 'release'), { recursive: true, force: true });
+  }
+
   if (!args.has('--skip-build')) {
     step('Building web UI');
     run('pnpm', ['--filter', 'web', 'build']);

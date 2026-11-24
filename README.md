@@ -54,10 +54,23 @@ pnpm --filter local-service test:e2e
 
 ## Paketleme
 
+Güncel kurulum dosyalarının hepsini tek komutla üretmek için (önce eski çıktılar silinir):
+
 ```bash
-pnpm package:desktop            # bu makine için yükleyici (macOS: dmg + zip)
-pnpm package:desktop -- --win   # Windows x64 NSIS yükleyici (macOS'tan da üretilebilir)
-pnpm package:desktop:dir        # yalnızca paketlenmemiş uygulama (hızlı test)
+pnpm package:all
+```
+
+Bu komut web arayüzünü ve servisi derler, ardından şunları üretir:
+
+- `TUKAKA Database Studio-<sürüm>-arm64.dmg` ve `-arm64-mac.zip` (macOS, Apple Silicon)
+- `TUKAKA Database Studio-Setup-<sürüm>-x64.exe` (Windows yükleyici)
+
+Tek platform için:
+
+```bash
+pnpm package:mac
+pnpm package:win
+pnpm package:desktop:dir   # yalnızca paketlenmemiş uygulama (hızlı test)
 ```
 
 Çıktılar `apps/desktop/release/` klasörüne yazılır. Ek seçenekler: `--mac`, `--linux`,
