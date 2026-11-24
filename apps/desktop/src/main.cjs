@@ -17,6 +17,16 @@ const { pathToFileURL } = require('url');
 
 app.setName('TUKAKA Database Studio');
 
+// Windows portable sürümü (tek exe): veriler exe'nin yanındaki klasörde durur,
+// böylece uygulama klasörüyle (ör. USB bellekte) birlikte taşınır.
+// PORTABLE_EXECUTABLE_DIR, electron-builder'ın portable başlatıcısı tarafından verilir.
+if (process.env.PORTABLE_EXECUTABLE_DIR && !process.env.TUKAKA_USER_DATA_DIR) {
+  process.env.TUKAKA_USER_DATA_DIR = path.join(
+    process.env.PORTABLE_EXECUTABLE_DIR,
+    'TUKAKA Database Studio Data',
+  );
+}
+
 // Test ve taşınabilir kurulumlar için: uygulama verisini (Chromium profili ve
 // studio.sqlite) ayrı bir klasöre yönlendirir.
 if (process.env.TUKAKA_USER_DATA_DIR) {

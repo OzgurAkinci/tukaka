@@ -30,14 +30,20 @@
   },
   "win": {
     "target": [
-      "nsis"
+      "nsis",
+      "portable",
+      "zip"
     ],
-    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${arch}-win.${ext}"
   },
   "nsis": {
     "oneClick": false,
     "perMachine": false,
-    "allowToChangeInstallationDirectory": true
+    "allowToChangeInstallationDirectory": true,
+    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
   },
   "linux": {
     "target": [
