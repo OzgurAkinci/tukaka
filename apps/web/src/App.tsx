@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
   Circle,
-  Database,
   History,
   PanelLeftClose,
   PanelLeftOpen,
@@ -242,13 +241,11 @@ function App() {
       {/* Top bar */}
       <header className="h-14 shrink-0 flex items-center justify-between px-4 border-b border-(--c-292d36) bg-(--c-171a21)">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <Database size={19} className="text-[white]" />
-          </div>
+          <img src="/favicon.svg" alt="" aria-hidden className="w-8 h-8 select-none" draggable={false} />
 
           <div className="flex items-center gap-2">
             <span className="font-semibold text-sm tracking-wide text-white">
-              Database Studio
+              TUKAKA Database Studio
             </span>
             {import.meta.env.DEV && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-(--c-292e39) text-gray-400">
@@ -474,7 +471,7 @@ function App() {
             <Circle size={8} className="text-emerald-500 fill-emerald-500" />
             Application Ready
           </span>
-          <span>Database Studio v0.1.0</span>
+          <span>TUKAKA Database Studio v{__APP_VERSION__}</span>
           {activeConnection && (
             <span>
               {activeConnection.name} · {activeConnection.type}

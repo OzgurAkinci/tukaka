@@ -1,6 +1,9 @@
 export {};
 
 declare global {
+  /** Kökteki package.json sürümü (vite.config.ts `define`). */
+  const __APP_VERSION__: string;
+
   interface Window {
     /**
      * Electron preload tarafından sağlanır; tarayıcıda çalışırken tanımsızdır.

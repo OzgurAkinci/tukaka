@@ -155,6 +155,15 @@ istenmezse `--no-jre` ile atlanabilir (o durumda kullanıcının Java'sı kullan
 Paketlenmiş uygulamada servis Electron içinde (`utilityProcess`) boş bir portta çalışır,
 arayüz `app://tukaka` adresinden yüklenir ve her açılışta yeni bir oturum token'ı üretilir.
 
+### Uygulama ikonu
+
+İkonun kaynağı `apps/desktop/build-resources/icon.svg` dosyasıdır. Değiştirdikten sonra macOS'ta
+PNG/ICNS/ICO dosyalarını ve web favicon'unu yeniden üretin (Chrome gerekir):
+
+```bash
+node apps/desktop/scripts/build-icons.mjs
+```
+
 ### Windows'ta kurulumsuz (portable) kullanım
 
 İki seçenek vardır; ikisi de yönetici yetkisi ya da kurulum gerektirmez:

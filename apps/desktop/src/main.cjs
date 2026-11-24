@@ -333,8 +333,16 @@ function isAllowedNavigation(url) {
   return isProduction ? url.startsWith(`${APP_ORIGIN}/`) : url.startsWith(DEV_WEB_URL);
 }
 
+/**
+ * Geliştirmede uygulama ikonu (paketlenmiş uygulamada electron-builder ikonu
+ * uygulamanın kendisine gömer).
+ */
+const DEV_ICON = path.join(__dirname, '..', 'build-resources', 'icon.png');
+const devIcon = !app.isPackaged && fs.existsSync(DEV_ICON) ? DEV_ICON : undefined;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
+    ...(devIcon && process.platform !== 'darwin' && { icon: devIcon }),
     width: 1440,
     height: 900,
     minWidth: 1100,
@@ -402,6 +410,10 @@ if (!app.requestSingleInstanceLock()) {
     try {
       if (isProduction) {
         registerAppProtocol();
+      }
+
+      if (devIcon && process.platform === 'darwin') {
+        app.dock?.setIcon(devIcon);
       }
 
       serviceUrl = isProduction

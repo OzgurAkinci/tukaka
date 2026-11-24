@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    TUKAKA Database Studio uygulama ikonu (kaynak).
+    1024×1024 tuval; macOS ikon ızgarasına uygun olarak 824×824 alan + gölge.
+    PNG/ICNS/ICO çıktıları scripts/build-icons.mjs ile bu dosyadan üretilir.
+  -->
+  <defs>
+    <linearGradient id="background" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#3b82f6" />
+      <stop offset="0.55" stop-color="#2447b8" />
+      <stop offset="1" stop-color="#1e1b6b" />
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="cylinder" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#dbeafe" />
+      <stop offset="0.45" stop-color="#ffffff" />
+      <stop offset="1" stop-color="#c7d7fe" />
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34d399" />
+      <stop offset="1" stop-color="#059669" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0b1033" flood-opacity="0.35" />
+    </filter>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#0b1033" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Zemin -->
+  <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#background)" filter="url(#shadow)" />
+  <rect x="100" y="100" width="824" height="420" rx="184" fill="url(#gloss)" />
+
+  <!-- Veritabanı silindiri -->
+  <g filter="url(#soft)">
+    <path d="M302 318 V660 A210 64 0 0 0 722 660 V318 Z" fill="url(#cylinder)" />
+    <path d="M302 432 A210 64 0 0 0 722 432" fill="none" stroke="#2447b8" stroke-opacity="0.28" stroke-width="14" />
+    <path d="M302 546 A210 64 0 0 0 722 546" fill="none" stroke="#2447b8" stroke-opacity="0.28" stroke-width="14" />
+    <ellipse cx="512" cy="318" rx="210" ry="64" fill="#f8fbff" />
+    <ellipse cx="512" cy="318" rx="150" ry="40" fill="#bfd3fe" opacity="0.75" />
+  </g>
+
+  <!-- Komut satırı rozeti (>_) -->
+  <circle cx="712" cy="700" r="128" fill="#1f2c8a" />
+  <circle cx="712" cy="700" r="110" fill="url(#badge)" />
+  <path d="M660 648 L712 700 L660 752" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M732 752 H782" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" />
+</svg>
