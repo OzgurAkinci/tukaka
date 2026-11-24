@@ -66,6 +66,7 @@ export default function QueryTabView({
   );
 
   const canCancel = connection ? databases[connection.type].supports.cancel : true;
+  const canExplain = connection ? databases[connection.type].supports.explain : true;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -125,8 +126,12 @@ export default function QueryTabView({
           <button
             type="button"
             onClick={() => onExplain()}
-            disabled={tab.explaining}
-            title="Explain query plan (⌘/Ctrl + Shift + Enter)"
+            disabled={tab.explaining || !canExplain}
+            title={
+              canExplain
+                ? 'Explain query plan (⌘/Ctrl + Shift + Enter)'
+                : 'Query plans are not available for this database'
+            }
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-(--c-303541) text-xs text-gray-300 hover:bg-(--c-292e39) disabled:opacity-50"
           >
             {tab.explaining ? (

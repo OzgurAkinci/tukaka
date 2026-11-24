@@ -31,5 +31,8 @@ Thumbs.db
 *.sqlite-wal
 *.sqlite-shm
 
+# IBM i (AS400) için indirilen Java kütüphaneleri (scripts/build-java.mjs indirir)
+apps/local-service/java/lib/
+
 # Claude Code yerel ayarları (kişiye özel; repoya girmez)
 .claude/

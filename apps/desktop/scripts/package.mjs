@@ -10,6 +10,7 @@
  *   ... --x64 | --arm64              # hedef mimari (varsayılan: bu makine)
  *   ... --skip-build                 # web/servis derlemesini atla
  *   ... --clean                      # önce release/ klasörünü temizle (eski sürümler kalmasın)
+ *   ... --no-jre                     # Java çalışma ortamını gömme (IBM i için kullanıcının Java'sı gerekir)
  *
  * Adımlar:
  *   1. Web arayüzünü (Vite) ve servisi (tsc) derle.
@@ -23,6 +24,7 @@
  *      macOS'ta Windows paketi de üretilebilir).
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
@@ -177,6 +179,101 @@ function pruneForeignPrebuilds() {
   }
 }
 
+const javaBuildDir = path.join(desktopDir, 'build/java');
+const jreBuildDir = path.join(desktopDir, 'build/jre');
+const cacheDir = path.join(desktopDir, 'build/cache');
+
+/**
+ * IBM i (AS400) için Java köprüsü ve jt400 sürücüsü. Köprü derlemesi JDK ister;
+ * JDK yoksa paket IBM i desteği olmadan üretilir (uyarı verilir).
+ */
+function prepareJava() {
+  step('Preparing IBM i (AS400) JDBC bridge');
+  run('node', [path.join(serviceDir, 'scripts/build-java.mjs')]);
+
+  const bridge = path.join(serviceDir, 'java/dist/tukaka-jdbc-bridge.jar');
+  const driver = path.join(serviceDir, 'java/lib/jt400.jar');
+
+  rmSync(javaBuildDir, { recursive: true, force: true });
+
+  if (!existsSync(bridge) || !existsSync(driver)) {
+    console.warn('  ! JDBC bridge not available (no JDK); IBM i connections will not work in this build.');
+    return false;
+  }
+
+  mkdirSync(path.join(javaBuildDir, 'lib'), { recursive: true });
+  cpSync(bridge, path.join(javaBuildDir, 'tukaka-jdbc-bridge.jar'));
+  cpSync(driver, path.join(javaBuildDir, 'lib/jt400.jar'));
+  return true;
+}
+
+/**
+ * Hedef platform için Eclipse Temurin 21 JRE'yi indirir (SHA-256 doğrulamalı,
+ * önbellekli) ve build/jre altına açar; böylece kullanıcıda Java gerekmez.
+ */
+async function prepareJre() {
+  step(`Preparing Java runtime (${targetPlatform}-${targetArch})`);
+
+  const os = { darwin: 'mac', win32: 'windows', linux: 'linux' }[targetPlatform];
+  const architecture = { arm64: 'aarch64', x64: 'x64' }[targetArch];
+  const api = `https://api.adoptium.net/v3/assets/latest/21/hotspot?os=${os}&architecture=${architecture}&image_type=jre&vendor=eclipse`;
+
+  const assets = await (await fetch(api)).json();
+  const pkg = assets?.[0]?.binary?.package;
+
+  if (!pkg?.link || !pkg?.checksum) {
+    throw new Error(`No Temurin JRE found for ${os}/${architecture}.`);
+  }
+
+  mkdirSync(cacheDir, { recursive: true });
+  const archive = path.join(cacheDir, pkg.name);
+  const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
+
+  if (!existsSync(archive) || sha256(archive) !== pkg.checksum) {
+    console.log(`  downloading ${pkg.name} (${Math.round(pkg.size / 1_048_576)} MB)`);
+    const response = await fetch(pkg.link);
+    if (!response.ok) throw new Error(`JRE download failed: ${response.status}`);
+    writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
+
+    if (sha256(archive) !== pkg.checksum) {
+      rmSync(archive, { force: true });
+      throw new Error('JRE checksum mismatch; refusing to bundle it.');
+    }
+  } else {
+    console.log(`  using cached ${pkg.name}`);
+  }
+
+  // Arşiv tek bir kök klasör içerir (ör. jdk-21.0.x+y-jre); içeriği build/jre'ye taşı.
+  const extractDir = path.join(cacheDir, 'extract');
+  rmSync(extractDir, { recursive: true, force: true });
+  mkdirSync(extractDir, { recursive: true });
+  run('tar', ['-xf', archive, '-C', extractDir]);
+
+  const [root] = readdirSync(extractDir).filter((name) => !name.startsWith('.'));
+  // macOS arşivi bir .jdk paketi gibidir: Contents/Home altında.
+  const home = existsSync(path.join(extractDir, root, 'Contents/Home'))
+    ? path.join(extractDir, root, 'Contents/Home')
+    : path.join(extractDir, root);
+
+  rmSync(jreBuildDir, { recursive: true, force: true });
+  cpSync(home, jreBuildDir, { recursive: true, verbatimSymlinks: true });
+  rmSync(extractDir, { recursive: true, force: true });
+
+  // CDS arşivleri (classes*.jsa) yalnızca açılışı hızlandırır; macOS codesign
+  // bunları imzalayamaz. JVM bunlar olmadan da çalışır.
+  const serverDir = path.join(jreBuildDir, 'lib/server');
+  if (existsSync(serverDir)) {
+    for (const file of readdirSync(serverDir)) {
+      if (file.endsWith('.jsa')) rmSync(path.join(serverDir, file));
+    }
+  }
+
+  const exe = targetPlatform === 'win32' ? 'java.exe' : 'java';
+  if (!existsSync(path.join(jreBuildDir, 'bin', exe))) {
+    throw new Error('Bundled JRE is missing bin/java.');
+  }
+}
+
 async function main() {
   if (args.has('--clean')) {
     step('Cleaning previous release artifacts');
@@ -227,6 +324,15 @@ async function main() {
 
   pruneForeignPrebuilds();
 
+  const javaReady = prepareJava();
+  const bundleJre = javaReady && !args.has('--no-jre');
+
+  if (bundleJre) {
+    await prepareJre();
+  } else {
+    rmSync(jreBuildDir, { recursive: true, force: true });
+  }
+
   if (args.has('--stage')) {
     console.log(`\nStaging ready: ${stagingDir}`);
     return;
@@ -239,6 +345,11 @@ async function main() {
 
   config.electronVersion = require('electron/package.json').version;
   config.extraMetadata = { main: 'main.cjs' };
+  // Java dosyaları asar dışında olmalı (JVM asar içinden okuyamaz).
+  config.extraResources = [
+    ...(javaReady ? [{ from: 'build/java', to: 'java' }] : []),
+    ...(bundleJre ? [{ from: 'build/jre', to: 'jre' }] : []),
+  ];
 
   const platform = {
     win32: Platform.WINDOWS,

@@ -49,6 +49,8 @@ const dialects: Record<DatabaseType, typeof StandardSQL> = {
   mssql: MSSQL,
   clickhouse: StandardSQL,
   oracle: PLSQL,
+  // Db2 for i için özel bir CodeMirror diyalekti yok.
+  db2i: StandardSQL,
 };
 
 function languageExtension(

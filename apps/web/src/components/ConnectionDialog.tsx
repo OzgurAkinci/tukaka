@@ -10,7 +10,7 @@ import type {
 
 import { errorMessage } from '../api/client';
 import { connectionsApi } from '../api/connections';
-import { databases, databaseTypes } from '../lib/databases';
+import { databaseGroups, databases, databaseTypes, type DatabaseGroup } from '../lib/databases';
 
 export type { DatabaseType, SslMode };
 
@@ -198,24 +198,33 @@ export default function ConnectionDialog({
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
             <div>
-              <label className={labelClass}>Database Type</label>
-              <div className="grid grid-cols-3 gap-2">
-                {databaseTypes.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    disabled={isEditMode}
-                    onClick={() => handleTypeChange(value)}
-                    className={`rounded-md border px-3 py-2.5 text-sm transition ${
-                      type === value
-                        ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                        : 'border-(--c-343a46) bg-(--c-171b24) text-(--c-9ca3af) hover:border-(--c-596273)'
-                    } disabled:cursor-not-allowed disabled:opacity-70`}
-                  >
-                    {databases[value].label}
-                  </button>
-                ))}
+              <label className={labelClass} htmlFor="connection-type">Database Type</label>
+              <div className="flex items-center gap-2">
+                <Database size={16} className={`shrink-0 ${info.color}`} aria-hidden />
+                <select
+                  id="connection-type"
+                  value={type}
+                  disabled={isEditMode}
+                  onChange={(event) => handleTypeChange(event.target.value as DatabaseType)}
+                  className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-70`}
+                >
+                  {(Object.keys(databaseGroups) as DatabaseGroup[]).map((group) => (
+                    <optgroup key={group} label={databaseGroups[group]}>
+                      {databaseTypes
+                        .filter((value) => databases[value].group === group)
+                        .map((value) => (
+                          <option key={value} value={value}>
+                            {databases[value].label}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ))}
+                </select>
               </div>
+              <p className={hintClass}>
+                {info.description}
+                {isEditMode && ' The type of an existing connection cannot be changed.'}
+              </p>
             </div>
 
             <div>
@@ -300,16 +309,18 @@ export default function ConnectionDialog({
                   </div>
                 </div>
 
+                {info.portHint && <p className={`${hintClass} -mt-2`}>{info.portHint}</p>}
+
                 <div>
                   <label className={labelClass} htmlFor="connection-database">
-                    {type === 'oracle' ? 'Service name' : 'Database'}
+                    {info.databaseLabel}
                   </label>
                   <input
                     id="connection-database"
                     required
                     value={database}
                     onChange={(event) => setDatabase(event.target.value)}
-                    placeholder="database_name"
+                    placeholder={info.databasePlaceholder}
                     className={inputClass}
                   />
                 </div>
@@ -355,7 +366,9 @@ export default function ConnectionDialog({
                       ))}
                     </select>
                     <p className={hintClass}>
-                      {sslModes.find(([value]) => value === sslMode)?.[2]}
+                      {sslMode === 'prefer' && info.sslNoNegotiation
+                        ? `${info.label} does not negotiate SSL automatically, so Prefer connects without SSL. Choose Require to use TLS.`
+                        : sslModes.find(([value]) => value === sslMode)?.[2]}
                     </p>
                   </div>
                 )}

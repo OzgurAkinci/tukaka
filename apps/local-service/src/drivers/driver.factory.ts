@@ -14,6 +14,7 @@ import { SqliteDriver } from './sqlite.driver';
 import { MssqlDriver } from './mssql.driver';
 import { ClickHouseDriver } from './clickhouse.driver';
 import { OracleDriver } from './oracle.driver';
+import { Db2iDriver } from './db2i.driver';
 
 import { ConnectionProfile } from '../connections/connections.service';
 import { ConnectionEventsService } from '../connections/connection-events.service';
@@ -35,6 +36,7 @@ export class DriverFactory implements OnModuleDestroy {
       mssql: new MssqlDriver(),
       clickhouse: new ClickHouseDriver(),
       oracle: new OracleDriver(),
+      db2i: new Db2iDriver(),
     };
   })();
 

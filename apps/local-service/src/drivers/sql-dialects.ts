@@ -104,6 +104,24 @@ export const oracleDialect: SqlDialect = {
   paginate: (limit, offset) => ` OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`,
 };
 
+/**
+ * Db2 for i (IBM i / AS400). Tipsiz `?` fonksiyon argümanı olamaz (SQL0418);
+ * bu yüzden LIKE parametresi önce VARCHAR'a çevrilir.
+ */
+export const db2iDialect: SqlDialect = {
+  quoteIdentifier: quoteDouble,
+  placeholder: () => '?',
+  castToText: (expression) => `UPPER(CAST(${expression} AS VARCHAR(4000)))`,
+  caseInsensitiveLike: 'LIKE',
+  likeParameter: (placeholder) => `UPPER(CAST(${placeholder} AS VARCHAR(4000)))`,
+  formatLiteral: (value) =>
+    literal(value, { booleans: 'number', backslashEscapes: false }),
+  insertDefaultValues: (tableRef, firstColumn) =>
+    `INSERT INTO ${tableRef} (${firstColumn}) VALUES (DEFAULT)`,
+  // 7.1 TR11 / 7.2 ve üzeri.
+  paginate: (limit, offset) => ` OFFSET ${offset} ROWS FETCH FIRST ${limit} ROWS ONLY`,
+};
+
 export const clickhouseDialect: SqlDialect = {
   quoteIdentifier: (name) => '`' + name.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`',
   placeholder: (index) => `{p${index}:String}`,

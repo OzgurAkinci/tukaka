@@ -15,7 +15,9 @@ export type DatabaseType =
   | 'sqlite'
   | 'mssql'
   | 'clickhouse'
-  | 'oracle';
+  | 'oracle'
+  /** IBM i (AS400) — Db2 for i, jt400 JDBC köprüsüyle. */
+  | 'db2i';
 
 /** SSH tüneli ayarları (bağlantının `options_json` alanında saklanır). */
 export interface SshTunnelConfig {

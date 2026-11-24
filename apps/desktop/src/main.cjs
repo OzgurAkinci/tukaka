@@ -73,6 +73,21 @@ protocol.registerSchemesAsPrivileged([
 // ---------------------------------------------------------------------------
 
 /**
+ * IBM i (AS400) desteği için paketle gelen Java köprüsü ve gömülü JRE.
+ * Gömülü JRE yoksa servis JAVA_HOME / PATH'teki Java'yı kullanır.
+ */
+function javaEnvironment() {
+  const env = {};
+  const javaDir = path.join(process.resourcesPath, 'java');
+  const jreDir = path.join(process.resourcesPath, 'jre');
+
+  if (fs.existsSync(javaDir)) env.TUKAKA_JAVA_DIR = javaDir;
+  if (fs.existsSync(jreDir)) env.TUKAKA_JAVA_HOME = jreDir;
+
+  return env;
+}
+
+/**
  * Üretim: paketlenmiş servis Electron'un kendi Node.js'i ile `utilityProcess`
  * içinde çalışır, boş bir port seçer ve hazır olunca portu mesajla bildirir.
  */
@@ -87,6 +102,7 @@ function startBundledService() {
         LOCAL_SERVICE_PORT: '0',
         TUKAKA_SESSION_TOKEN: sessionToken,
         TUKAKA_ALLOWED_ORIGINS: APP_ORIGIN,
+        ...javaEnvironment(),
       },
     });
 
