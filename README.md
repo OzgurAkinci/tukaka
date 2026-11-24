@@ -1,6 +1,7 @@
 # TUKAKA Database Studio
 
-PostgreSQL, MySQL, MariaDB, SQLite, SQL Server ve ClickHouse için masaüstü veritabanı istemcisi.
+PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, Oracle ve ClickHouse için masaüstü veritabanı
+istemcisi (macOS ve Windows).
 
 | Klasör | İçerik |
 |---|---|
@@ -24,15 +25,34 @@ PostgreSQL, MySQL, MariaDB, SQLite, SQL Server ve ClickHouse için masaüstü ve
 - **Görselleştirme:** EXPLAIN plan ağacı (maliyet çubuklarıyla), ER diyagramı (SVG dışa aktarma).
 - **Tema:** koyu, açık ya da sistem.
 
-| Özellik | PostgreSQL | MySQL/MariaDB | SQLite | SQL Server | ClickHouse |
-|---|---|---|---|---|---|
-| Satır düzenleme | ✓ | ✓ | ✓ | ✓ | — (transaction yok) |
-| Sorgu iptali / zaman aşımı | ✓ | ✓ | — | ✓ | ✓ |
-| Fonksiyon/prosedürler | ✓ | ✓ | — | ✓ | — |
-| Yabancı anahtar / ER ilişkileri | ✓ | ✓ | ✓ | ✓ | — |
+### Veritabanı desteği
 
-> SQL Server ve ClickHouse sürücüleri birim testleriyle (ClickHouse için HTTP protokolü
-> taklidiyle) doğrulandı; gerçek sunucularla henüz test edilmedi.
+| Özellik | PostgreSQL | MySQL / MariaDB | SQLite | SQL Server | Oracle | ClickHouse |
+|---|---|---|---|---|---|---|
+| Satır düzenleme | ✓ | ✓ | ✓ | ✓ | ✓ | — (transaction yok) |
+| Sorgu iptali / zaman aşımı | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+| Fonksiyon/prosedürler | ✓ | ✓ | — | ✓ | ✓ | — |
+| Yabancı anahtar / ER ilişkileri | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| SSL | ✓ | ✓ | — | ✓ | ✓ (TCPS) | ✓ (HTTPS) |
+| SSH tüneli | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+| Varsayılan port | 5432 | 3306 | — | 1433 | 1521 | 8123 |
+
+**Doğrulama durumu:** PostgreSQL, MySQL ve SQLite gerçek veritabanlarıyla kullanılıyor.
+SQL Server, Oracle ve ClickHouse sürücüleri birim testleriyle (ClickHouse için HTTP protokolü
+taklidiyle) doğrulandı; gerçek sunucularla henüz test edilmedi.
+
+### Oracle notları
+
+- Oracle Instant Client **gerekmez**: `oracledb` sürücüsü saf JavaScript "Thin" modunda çalışır
+  (Oracle Database 12.1 ve üzeri).
+- Bağlantıdaki "Service name" alanı servis adıdır (ör. Oracle Free için `FREEPDB1`).
+- Şemalar Oracle kullanıcılarıdır; yalnızca sistem dışı ve nesnesi olan kullanıcılar listelenir.
+- PL/SQL blokları (`BEGIN … END;`, `CREATE FUNCTION …`) SQL Developer'daki gibi tek başına `/`
+  içeren satırla bitirilir; düz SQL ifadeleri `;` ile ayrılabilir.
+- Editörden çalışan ifadeler otomatik commit edilir (diğer veritabanlarıyla tutarlı). Data Viewer
+  değişiklikleri ise tek transaction içinde, onaydan sonra uygulanır.
+- DDL `DBMS_METADATA` ile alınır; başka şemaların nesneleri için yetki yoksa kolon ve
+  kısıtlardan üretilir.
 
 ## Geliştirme
 
@@ -42,14 +62,26 @@ pnpm dev:desktop
 ```
 
 Servis `http://127.0.0.1:4317`, arayüz `http://127.0.0.1:5173` adresinde çalışır.
-Uygulama verisi (bağlantılar, geçmiş) `~/Library/Application Support/TUKAKA Database Studio/studio.sqlite`
-dosyasında, şifreler işletim sisteminin anahtar zincirinde tutulur.
 
-Testler:
+Uygulama verisi (bağlantılar, sorgu geçmişi, kayıtlı sorgular) `studio.sqlite` dosyasındadır:
+
+| Platform | Klasör |
+|---|---|
+| macOS | `~/Library/Application Support/TUKAKA Database Studio/` |
+| Windows | `%APPDATA%\TUKAKA Database Studio\` |
+| Linux | `~/.local/share/tukaka-database-studio/` |
+
+Veritabanı ve SSH şifreleri bu dosyada değil, işletim sisteminin güvenli kasasında
+(macOS Keychain, Windows Credential Manager, Secret Service) tutulur. Şema değişiklikleri
+uygulama açılırken otomatik olarak uygulanır (`apps/local-service/src/database/migrations.ts`).
+
+Testler ve kontroller:
 
 ```bash
 pnpm --filter local-service test
 pnpm --filter local-service test:e2e
+pnpm --filter local-service lint
+pnpm --filter web lint
 ```
 
 ## Paketleme
@@ -73,8 +105,18 @@ pnpm package:win
 pnpm package:desktop:dir   # yalnızca paketlenmemiş uygulama (hızlı test)
 ```
 
-Çıktılar `apps/desktop/release/` klasörüne yazılır. Ek seçenekler: `--mac`, `--linux`,
-`--x64`, `--arm64`, `--skip-build`.
+Çıktılar `apps/desktop/release/` klasörüne yazılır. Dosya adlarındaki sürüm, kökteki
+`package.json` dosyasının `version` alanından gelir; yeni bir sürüm çıkarmadan önce onu artırın.
+
+Betiğin ek seçenekleri: `--mac`, `--win`, `--linux`, `--x64`, `--arm64`, `--dir`,
+`--skip-build`, `--clean`. Örneğin Intel Mac için:
+
+```bash
+node apps/desktop/scripts/package.mjs --mac --x64
+```
+
+Native modüller (`better-sqlite3`, keyring) her platform için hazır binary'lerle geldiğinden
+Windows yükleyicisi macOS üzerinde de üretilebilir.
 
 Paketlenmiş uygulamada servis Electron içinde (`utilityProcess`) boş bir portta çalışır,
 arayüz `app://tukaka` adresinden yüklenir ve her açılışta yeni bir oturum token'ı üretilir.

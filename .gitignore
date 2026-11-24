@@ -30,3 +30,6 @@ Thumbs.db
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Claude Code yerel ayarları (kişiye özel; repoya girmez)
+.claude/
