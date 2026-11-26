@@ -9,7 +9,7 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "dev:desktop": "concurrently -k \"pnpm --filter web dev -- --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron apps/desktop\"",
+    "dev:desktop": "concurrently -k \"pnpm --filter web dev --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron apps/desktop\"",
     "package:desktop": "node apps/desktop/scripts/package.mjs",
     "package:desktop:dir": "node apps/desktop/scripts/package.mjs --dir",
     "package:mac": "node apps/desktop/scripts/package.mjs --mac",
