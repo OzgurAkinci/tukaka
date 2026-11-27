@@ -14,12 +14,19 @@ import {
   Table2,
   Trash2,
 } from 'lucide-react';
-import type { ConnectionProfile, DatabaseRoutine } from '@tukaka/contracts';
+import { useCallback, useState } from 'react';
+import type {
+  ConnectionCollection,
+  ConnectionProfile,
+  DatabaseRoutine,
+} from '@tukaka/contracts';
 
 import type { ConnectionTestStatus } from '../hooks/useConnections';
 import { schemaKey, type ExplorerState } from '../hooks/useExplorer';
 import { databases } from '../lib/databases';
 import { CONNECTION_DRAG_TYPE } from '../lib/dragTypes';
+import type { MenuEntry } from '../lib/menu';
+import ContextMenu from './ContextMenu';
 
 export interface ActiveTableRef {
   connectionId: string;
@@ -47,6 +54,11 @@ export interface DatabaseExplorerProps {
   onOpenErDiagram: (connectionId: string, schema: string) => void;
   onCreateTable: (connectionId: string, schema: string) => void;
   onOpenRoutine: (connectionId: string, schema: string, routine: DatabaseRoutine) => void;
+  /** Sağ tık menüsündeki "Move to Collection" için. */
+  collections?: ConnectionCollection[];
+  onMoveConnection?: (connectionId: string, collectionId: string | null) => void;
+  /** Yeni koleksiyon oluşturup bağlantıyı içine taşır. */
+  onNewCollectionFor?: (connectionId: string) => void;
 }
 
 const iconButton =
@@ -67,9 +79,83 @@ export default function DatabaseExplorer({
   onOpenErDiagram,
   onCreateTable,
   onOpenRoutine,
+  collections = [],
+  onMoveConnection,
+  onNewCollectionFor,
 }: DatabaseExplorerProps) {
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(
+    null,
+  );
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  const connectionMenu = (connection: ConnectionProfile): MenuEntry[] => {
+    const expanded = explorer.expandedConnections.has(connection.id);
+    const testing = testStatuses[connection.id]?.loading ?? false;
+    const current = connection.collection_id ?? null;
+
+    const moveItems: MenuEntry[] = [
+      {
+        label: 'No collection',
+        checked: current === null,
+        onSelect: () => {
+          if (current !== null) onMoveConnection?.(connection.id, null);
+        },
+      },
+      ...collections.map<MenuEntry>((collection) => ({
+        label: collection.name,
+        checked: current === collection.id,
+        onSelect: () => {
+          if (current !== collection.id) onMoveConnection?.(connection.id, collection.id);
+        },
+      })),
+      ...(onNewCollectionFor
+        ? ([
+            { separator: true },
+            { label: 'New Collection…', onSelect: () => onNewCollectionFor(connection.id) },
+          ] as MenuEntry[])
+        : []),
+    ];
+
+    return [
+      { label: 'New Query', onSelect: () => onNewQuery(connection.id) },
+      {
+        label: expanded ? 'Collapse' : 'Show Database Objects',
+        onSelect: () => explorer.toggleConnection(connection.id),
+      },
+      {
+        label: 'Refresh Database Objects',
+        disabled: !expanded,
+        onSelect: () => onRefresh(connection.id),
+      },
+      { separator: true },
+      {
+        label: testing ? 'Testing Connection…' : 'Test Connection',
+        disabled: testing,
+        onSelect: () => onTest(connection.id),
+      },
+      { label: 'Edit Connection…', onSelect: () => onEdit(connection) },
+      ...(onMoveConnection
+        ? ([
+            {
+              label: 'Move to Collection',
+              submenu: moveItems,
+              onSelect: () => {},
+            },
+          ] as MenuEntry[])
+        : []),
+      {
+        label: 'Copy Name',
+        onSelect: () => void navigator.clipboard?.writeText(connection.name),
+      },
+      { separator: true },
+      { label: 'Delete Connection…', onSelect: () => onDelete(connection) },
+    ];
+  };
+
   return (
     <>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={closeMenu} />}
+
       {connections.map((connection) => {
         const expanded = explorer.expandedConnections.has(connection.id);
         const status = testStatuses[connection.id];
@@ -86,6 +172,11 @@ export default function DatabaseExplorer({
                 // Koleksiyonlar arasında taşımak için (bkz. ConnectionTree).
                 event.dataTransfer.setData(CONNECTION_DRAG_TYPE, connection.id);
                 event.dataTransfer.effectAllowed = 'move';
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setMenu({ x: event.clientX, y: event.clientY, items: connectionMenu(connection) });
               }}
               className={`group flex items-center rounded-md ${
                 activeConnectionId === connection.id

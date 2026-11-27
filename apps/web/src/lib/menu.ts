@@ -12,6 +12,8 @@ export type MenuEntry =
       global?: boolean;
       disabled?: boolean;
       checked?: boolean;
+      /** Üzerine gelince açılan alt menü (yalnızca sağ tık menülerinde). */
+      submenu?: MenuEntry[];
       onSelect: () => void;
     }
   | { separator: true };

@@ -55,7 +55,8 @@ type ConnectionDialogState =
   | null;
 
 type CollectionDialogState =
-  | { mode: 'create' }
+  /** moveConnectionId: oluşturulunca bu bağlantı yeni koleksiyona taşınır. */
+  | { mode: 'create'; moveConnectionId?: string }
   | { mode: 'edit'; collection: ConnectionCollection }
   | null;
 
@@ -158,7 +159,11 @@ function App() {
     if (collectionDialog?.mode === 'edit') {
       await connections.updateCollection(collectionDialog.collection.id, value);
     } else {
-      await connections.createCollection(value);
+      const created = await connections.createCollection(value);
+
+      if (collectionDialog?.moveConnectionId) {
+        await handleMoveConnection(collectionDialog.moveConnectionId, created.id);
+      }
     }
 
     setCollectionDialog(null);
@@ -586,6 +591,9 @@ function App() {
                   void handleMoveConnection(connectionId, collectionId)
                 }
                 onReorderCollections={(ids) => void connections.reorderCollections(ids)}
+                onNewCollectionFor={(connectionId) =>
+                  setCollectionDialog({ mode: 'create', moveConnectionId: connectionId })
+                }
                 explorer={explorer}
                 testStatuses={connections.testStatuses}
                 activeConnectionId={activeConnectionId}

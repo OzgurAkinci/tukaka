@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react';
+import { useCallback, useState, type DragEvent } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -12,7 +12,9 @@ import type { ConnectionCollection, ConnectionProfile } from '@tukaka/contracts'
 
 import DatabaseExplorer, { type DatabaseExplorerProps } from './DatabaseExplorer';
 import { COLLECTION_DRAG_TYPE, CONNECTION_DRAG_TYPE } from '../lib/dragTypes';
+import type { MenuEntry } from '../lib/menu';
 import { readStorage, writeStorage } from '../lib/storage';
+import ContextMenu from './ContextMenu';
 
 const COLLAPSED_KEY = 'tukaka.collapsedCollections';
 const UNGROUPED = 'ungrouped';
@@ -29,6 +31,8 @@ interface ConnectionTreeProps
   onDeleteCollection: (collection: ConnectionCollection) => void;
   onMoveConnection: (connectionId: string, collectionId: string | null) => void;
   onReorderCollections: (orderedIds: string[]) => void;
+  /** Yeni koleksiyon oluşturup bağlantıyı içine taşır. */
+  onNewCollectionFor: (connectionId: string) => void;
 }
 
 const hasType = (event: DragEvent, type: string) =>
@@ -50,8 +54,14 @@ export default function ConnectionTree({
   onDeleteCollection,
   onMoveConnection,
   onReorderCollections,
-  ...explorerProps
+  onNewCollectionFor,
+  ...props
 }: ConnectionTreeProps) {
+  const explorerProps = { ...props, collections, onMoveConnection, onNewCollectionFor };
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(
+    null,
+  );
+  const closeMenu = useCallback(() => setMenu(null), []);
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(readStorage<string[]>(COLLAPSED_KEY, [])),
   );
@@ -121,12 +131,43 @@ export default function ConnectionTree({
     onReorderCollections(ids);
   };
 
+  const collectionMenu = (collection: ConnectionCollection, open: boolean): MenuEntry[] => {
+    const index = collections.findIndex((item) => item.id === collection.id);
+    const move = (offset: number) => {
+      const ids = collections.map((item) => item.id);
+      const [id] = ids.splice(index, 1);
+      ids.splice(index + offset, 0, id);
+      onReorderCollections(ids);
+    };
+
+    return [
+      { label: 'New Connection Here…', onSelect: () => onAddConnection(collection.id) },
+      { separator: true },
+      {
+        label: open ? 'Collapse' : 'Expand',
+        disabled: searching,
+        onSelect: () => toggle(collection.id),
+      },
+      { label: 'Move Up', disabled: index <= 0, onSelect: () => move(-1) },
+      {
+        label: 'Move Down',
+        disabled: index < 0 || index >= collections.length - 1,
+        onSelect: () => move(1),
+      },
+      { separator: true },
+      { label: 'Edit Collection…', onSelect: () => onEditCollection(collection) },
+      { label: 'Delete Collection…', onSelect: () => onDeleteCollection(collection) },
+    ];
+  };
+
   const visibleCollections = searching
     ? collections.filter((collection) => byCollection.has(collection.id))
     : collections;
 
   return (
     <div className="space-y-1">
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={closeMenu} />}
+
       {visibleCollections.map((collection) => {
         const items = byCollection.get(collection.id) ?? [];
         const open = searching || !collapsed.has(collection.id);
@@ -160,6 +201,14 @@ export default function ConnectionTree({
                 event.preventDefault();
                 event.stopPropagation();
                 reorderBefore(draggedId, collection.id);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  items: collectionMenu(collection, open),
+                });
               }}
               className="group/collection flex items-center rounded-md hover:bg-(--c-252a34)"
             >
