@@ -14,7 +14,7 @@
     "package:desktop:dir": "node apps/desktop/scripts/package.mjs --dir",
     "package:mac": "node apps/desktop/scripts/package.mjs --mac",
     "package:win": "node apps/desktop/scripts/package.mjs --win --x64",
-    "package:all": "node apps/desktop/scripts/package.mjs --clean --mac && node apps/desktop/scripts/package.mjs --win --x64 --skip-build"
+    "package:all": "node apps/desktop/scripts/package-all.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.7",

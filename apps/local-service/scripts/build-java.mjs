@@ -13,7 +13,7 @@
  *
  * JDK şu sırayla aranır: JAVA_HOME, macOS java_home, PATH.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -88,13 +88,32 @@ function findJdk() {
     if (existsSync(javac)) return { javac, jar: path.join(home, 'bin', `jar${exe}`) };
   }
 
-  // PATH'te olabilir.
+  // PATH'te olabilir. Windows'ta Oracle kurulumu PATH'e yalnızca java/javac
+  // kısayollarını koyar (Common Files\Oracle\Java\javapath), jar'ı koymaz; bu
+  // yüzden javac'ın çalıştığı JDK'nın klasörü sorulup jar oradan alınır.
   try {
     execFileSync(`javac${exe}`, ['-version'], { stdio: 'ignore' });
-    return { javac: `javac${exe}`, jar: `jar${exe}` };
   } catch {
     return null;
   }
+
+  const home = javacHome(`javac${exe}`);
+  const jar = home && path.join(home, 'bin', `jar${exe}`);
+
+  return { javac: `javac${exe}`, jar: jar && existsSync(jar) ? jar : `jar${exe}` };
+}
+
+/** javac'ın kullandığı JDK klasörü (java.home); bulunamazsa null. */
+function javacHome(javac) {
+  // -XshowSettings çıktısı stderr'e yazılır; ikisi birlikte okunur.
+  const result = spawnSync(javac, ['-J-XshowSettings:properties', '-version'], {
+    encoding: 'utf8',
+  });
+  return parseJavaHome(`${result.stdout ?? ''}${result.stderr ?? ''}`);
+}
+
+function parseJavaHome(text) {
+  return text.match(/^\s*java\.home\s*=\s*(.+?)\s*$/m)?.[1] ?? null;
 }
 
 function listSources(dir) {

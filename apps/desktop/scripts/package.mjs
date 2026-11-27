@@ -247,7 +247,11 @@ async function prepareJre() {
   const extractDir = path.join(cacheDir, 'extract');
   rmSync(extractDir, { recursive: true, force: true });
   mkdirSync(extractDir, { recursive: true });
-  run('tar', ['-xf', archive, '-C', extractDir]);
+  // Windows'ta sistemin bsdtar'ı (zip açabilir) kullanılır; PATH'te önce
+  // Git Bash'in GNU tar'ı olabilir, o zip açamaz ve "C:" yolunu uzak sunucu sanar.
+  const systemTar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  const tar = process.platform === 'win32' && existsSync(systemTar) ? systemTar : 'tar';
+  run(tar, ['-xf', archive, '-C', extractDir]);
 
   const [root] = readdirSync(extractDir).filter((name) => !name.startsWith('.'));
   // macOS arşivi bir .jdk paketi gibidir: Contents/Home altında.
