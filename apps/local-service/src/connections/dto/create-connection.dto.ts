@@ -5,6 +5,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsOptional,
+  IsUUID,
   IsString,
   Max,
   MaxLength,
@@ -82,4 +83,9 @@ export class CreateConnectionDto {
   @ValidateNested()
   @Type(() => ConnectionOptionsDto)
   options?: ConnectionOptionsDto;
+
+  /** Koleksiyon kimliği; null gruplanmamış demektir. */
+  @IsOptional()
+  @IsUUID()
+  collectionId?: string | null;
 }

@@ -19,6 +19,7 @@ import type { ConnectionProfile, DatabaseRoutine } from '@tukaka/contracts';
 import type { ConnectionTestStatus } from '../hooks/useConnections';
 import { schemaKey, type ExplorerState } from '../hooks/useExplorer';
 import { databases } from '../lib/databases';
+import { CONNECTION_DRAG_TYPE } from '../lib/dragTypes';
 
 export interface ActiveTableRef {
   connectionId: string;
@@ -26,7 +27,7 @@ export interface ActiveTableRef {
   table: string;
 }
 
-interface DatabaseExplorerProps {
+export interface DatabaseExplorerProps {
   connections: ConnectionProfile[];
   explorer: ExplorerState;
   testStatuses: Record<string, ConnectionTestStatus>;
@@ -80,6 +81,12 @@ export default function DatabaseExplorer({
           <div key={connection.id} className="mb-1">
             {/* Connection row */}
             <div
+              draggable
+              onDragStart={(event) => {
+                // Koleksiyonlar arasında taşımak için (bkz. ConnectionTree).
+                event.dataTransfer.setData(CONNECTION_DRAG_TYPE, connection.id);
+                event.dataTransfer.effectAllowed = 'move';
+              }}
               className={`group flex items-center rounded-md ${
                 activeConnectionId === connection.id
                   ? 'bg-(--c-252a34)'

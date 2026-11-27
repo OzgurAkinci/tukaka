@@ -12,6 +12,7 @@ import { CreateConnectionDto } from './dto/create-connection.dto';
 import { UpdateConnectionDto } from './dto/update-connection.dto';
 import { CredentialService } from '../credentials/credential.service';
 import { ConnectionEventsService } from './connection-events.service';
+import { CollectionsService } from './collections.service';
 
 
 import type { ConnectionOptions, ConnectionProfile } from '@tukaka/contracts';
@@ -34,9 +35,19 @@ export class ConnectionsService {
         private readonly databaseService: DatabaseService,
         private readonly credentialService: CredentialService,
         private readonly connectionEvents: ConnectionEventsService,
+        private readonly collectionsService: CollectionsService,
     ) { }
 
+    /** Koleksiyon kimliğini doğrular; undefined/null kontrol gerektirmez. */
+    private checkCollection(collectionId: string | null | undefined): void {
+        if (collectionId && !this.collectionsService.exists(collectionId)) {
+            throw new BadRequestException('Collection not found.');
+        }
+    }
+
     create(dto: CreateConnectionDto): ConnectionProfile {
+        this.checkCollection(dto.collectionId);
+
         const database = this.databaseService.getDatabase();
         const id = randomUUID();
 
@@ -51,7 +62,8 @@ export class ConnectionsService {
           database,
           username,
           ssl_mode,
-          options_json
+          options_json,
+          collection_id
         )
         VALUES (
           @id,
@@ -62,7 +74,8 @@ export class ConnectionsService {
           @database,
           @username,
           @ssl_mode,
-          @options_json
+          @options_json,
+          @collection_id
         )
       `)
             .run({
@@ -75,6 +88,7 @@ export class ConnectionsService {
                 username: dto.username ?? null,
                 ssl_mode: dto.sslMode ?? 'prefer',
                 options_json: JSON.stringify(dto.options ?? {}),
+                collection_id: dto.collectionId ?? null,
             });
 
         if (result.changes !== 1) {
@@ -116,6 +130,8 @@ export class ConnectionsService {
     update(id: string, dto: UpdateConnectionDto): ConnectionProfile {
         const current = this.findOne(id);
 
+        this.checkCollection(dto.collectionId);
+
         const updated = {
             name: dto.name?.trim() ?? current.name,
             database: dto.database?.trim() ?? current.database,
@@ -127,6 +143,8 @@ export class ConnectionsService {
                 dto.options !== undefined
                     ? JSON.stringify({ ...parseOptions(current.options_json), ssh: dto.options.ssh })
                     : current.options_json,
+            collection_id:
+                dto.collectionId !== undefined ? dto.collectionId : current.collection_id,
         };
 
         if (current.type !== 'sqlite') {
@@ -151,6 +169,7 @@ export class ConnectionsService {
         username = @username,
         ssl_mode = @ssl_mode,
         options_json = @options_json,
+        collection_id = @collection_id,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = @id
     `)

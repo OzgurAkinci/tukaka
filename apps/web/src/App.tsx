@@ -1,6 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Circle,
+  FolderPlus,
+  Info,
   History,
   PanelLeftClose,
   PanelLeftOpen,
@@ -10,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type {
+  ConnectionCollection,
   ConnectionProfile,
   DatabaseRoutine,
   SavedQuery,
@@ -18,11 +21,14 @@ import type {
 import { errorMessage } from './api/client';
 import { connectionsApi } from './api/connections';
 import { queriesApi } from './api/queries';
+import AppMenuBar from './components/AppMenuBar';
+import CollectionDialog from './components/CollectionDialog';
+import ConnectionTree from './components/ConnectionTree';
+import Modal, { secondaryButtonClass } from './components/Modal';
 import ConnectionDialog, {
   type ConnectionConfig,
 } from './components/ConnectionDialog';
 import ColumnDesigner from './components/ColumnDesigner';
-import DatabaseExplorer from './components/DatabaseExplorer';
 import ErDiagramView from './components/ErDiagramView';
 import QueriesPanel, { type QueriesPanelTab } from './components/QueriesPanel';
 import QueryTabView from './components/QueryTabView';
@@ -35,6 +41,7 @@ import { useCompletion } from './hooks/useCompletion';
 import { useConnections } from './hooks/useConnections';
 import { useExplorer } from './hooks/useExplorer';
 import { useSettings } from './hooks/useSettings';
+import { formatShortcut, useMenuShortcuts, type MenuDefinition } from './lib/menu';
 import { ThemeContext, useResolvedTheme } from './lib/theme';
 import {
   isDirty,
@@ -43,9 +50,22 @@ import {
 } from './hooks/useWorkspaceTabs';
 
 type ConnectionDialogState =
-  | { mode: 'create' }
+  | { mode: 'create'; collectionId?: string | null }
   | { mode: 'edit'; connection: ConnectionProfile }
   | null;
+
+type CollectionDialogState =
+  | { mode: 'create' }
+  | { mode: 'edit'; collection: ConnectionCollection }
+  | null;
+
+const desktop = window.desktopAPI;
+const isMac = desktop?.platform === 'darwin';
+/** Windows/Linux masaüstünde menüler başlık çubuğunda çizilir (macOS'ta sistem menüsü). */
+const showMenuBar = Boolean(desktop?.windowCommand) && !isMac;
+
+const windowCommand = (command: DesktopWindowCommand) =>
+  void desktop?.windowCommand?.(command);
 
 function App() {
   const { settings, updateSettings } = useSettings();
@@ -62,6 +82,9 @@ function App() {
     null,
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collectionDialog, setCollectionDialog] =
+    useState<CollectionDialogState>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
   const [tableDesigner, setTableDesigner] = useState<{
     connectionId: string;
@@ -76,6 +99,11 @@ function App() {
   const activeConnection = connections.connections.find(
     (item) => item.id === activeConnectionId,
   );
+
+  // Pencere düğmelerinin renkleri temayı izler.
+  useEffect(() => {
+    desktop?.setTheme?.(theme);
+  }, [theme]);
 
   const { completion, invalidateCompletion } = useCompletion(
     activeTab?.kind === 'query' ? [activeTab.connectionId] : [],
@@ -119,6 +147,50 @@ function App() {
       workspace.handleConnectionRemoved(connection.id);
     } catch (error) {
       connections.setError(errorMessage(error, 'Bağlantı silinemedi.'));
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Koleksiyonlar
+  // ---------------------------------------------------------------------------
+
+  const handleCollectionSave = async (value: { name: string; color: string | null }) => {
+    if (collectionDialog?.mode === 'edit') {
+      await connections.updateCollection(collectionDialog.collection.id, value);
+    } else {
+      await connections.createCollection(value);
+    }
+
+    setCollectionDialog(null);
+  };
+
+  const handleCollectionDelete = async (collection: ConnectionCollection) => {
+    const count = connections.connections.filter(
+      (item) => item.collection_id === collection.id,
+    ).length;
+
+    if (
+      !window.confirm(
+        count > 0
+          ? `Delete the "${collection.name}" collection? Its ${count} connection(s) will be kept and moved to Ungrouped.`
+          : `Delete the "${collection.name}" collection?`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await connections.removeCollection(collection.id);
+    } catch (error) {
+      connections.setError(errorMessage(error, 'Koleksiyon silinemedi.'));
+    }
+  };
+
+  const handleMoveConnection = async (connectionId: string, collectionId: string | null) => {
+    try {
+      await connections.moveConnection(connectionId, collectionId);
+    } catch (error) {
+      connections.setError(errorMessage(error, 'Bağlantı taşınamadı.'));
     }
   };
 
@@ -226,9 +298,143 @@ function App() {
   };
 
   const needle = search.trim().toLowerCase();
-  const filteredConnections = connections.connections.filter((item) =>
-    item.name.toLowerCase().includes(needle),
+  // Koleksiyon adıyla eşleşen aramada koleksiyonun tüm bağlantıları görünür.
+  const matchingCollections = new Set(
+    connections.collections
+      .filter((item) => needle && item.name.toLowerCase().includes(needle))
+      .map((item) => item.id),
   );
+  const filteredConnections = connections.connections.filter(
+    (item) =>
+      item.name.toLowerCase().includes(needle) ||
+      (item.collection_id !== null && matchingCollections.has(item.collection_id)),
+  );
+
+  const activeTabTitle =
+    activeTab?.kind === 'query'
+      ? activeTab.title
+      : activeTab?.kind === 'er'
+        ? `ER · ${activeTab.schema}`
+        : activeTab?.table;
+
+  // ---------------------------------------------------------------------------
+  // Menü (File / Edit / View / Window / Help)
+  // ---------------------------------------------------------------------------
+
+  const menus: MenuDefinition[] = [
+      {
+        label: 'File',
+        items: [
+          { label: 'New Query', shortcut: 'Ctrl+T', global: true, onSelect: () => newQueryTab() },
+          {
+            label: 'New Connection…',
+            shortcut: 'Ctrl+Shift+N',
+            global: true,
+            onSelect: () => setConnectionDialog({ mode: 'create' }),
+          },
+          {
+            label: 'New Collection…',
+            shortcut: 'Ctrl+Shift+G',
+            global: true,
+            onSelect: () => setCollectionDialog({ mode: 'create' }),
+          },
+          { separator: true },
+          {
+            label: 'Save Query',
+            shortcut: 'Ctrl+S',
+            disabled: activeTab?.kind !== 'query',
+            onSelect: () => {
+              if (activeTab?.kind === 'query') void saveQuery(activeTab);
+            },
+          },
+          {
+            label: 'Close Tab',
+            shortcut: 'Ctrl+W',
+            global: true,
+            disabled: !activeTab,
+            onSelect: () => {
+              if (activeTab) closeTab(activeTab.id);
+            },
+          },
+          { separator: true },
+          {
+            label: 'Settings…',
+            shortcut: 'Ctrl+,',
+            global: true,
+            onSelect: () => setSettingsOpen(true),
+          },
+          { separator: true },
+          { label: 'Exit', shortcut: 'Alt+F4', onSelect: () => windowCommand('quit') },
+        ],
+      },
+      {
+        label: 'Edit',
+        items: [
+          { label: 'Undo', shortcut: 'Ctrl+Z', onSelect: () => windowCommand('undo') },
+          { label: 'Redo', shortcut: 'Ctrl+Y', onSelect: () => windowCommand('redo') },
+          { separator: true },
+          { label: 'Cut', shortcut: 'Ctrl+X', onSelect: () => windowCommand('cut') },
+          { label: 'Copy', shortcut: 'Ctrl+C', onSelect: () => windowCommand('copy') },
+          { label: 'Paste', shortcut: 'Ctrl+V', onSelect: () => windowCommand('paste') },
+          { separator: true },
+          { label: 'Select All', shortcut: 'Ctrl+A', onSelect: () => windowCommand('selectAll') },
+        ],
+      },
+      {
+        label: 'View',
+        items: [
+          {
+            label: 'Sidebar',
+            shortcut: 'Ctrl+B',
+            global: true,
+            checked: sidebarOpen,
+            onSelect: () => setSidebarOpen((open) => !open),
+          },
+          {
+            label: 'Query History & Saved',
+            shortcut: 'Ctrl+H',
+            global: true,
+            onSelect: () => setQueriesPanel('history'),
+          },
+          { separator: true },
+          { label: 'Zoom In', shortcut: 'Ctrl+=', global: true, onSelect: () => windowCommand('zoomIn') },
+          { label: 'Zoom Out', shortcut: 'Ctrl+-', global: true, onSelect: () => windowCommand('zoomOut') },
+          { label: 'Actual Size', shortcut: 'Ctrl+0', global: true, onSelect: () => windowCommand('resetZoom') },
+          { separator: true },
+          {
+            label: 'Full Screen',
+            shortcut: 'F11',
+            global: true,
+            onSelect: () => windowCommand('toggleFullScreen'),
+          },
+          { separator: true },
+          { label: 'Reload', shortcut: 'Ctrl+R', global: true, onSelect: () => windowCommand('reload') },
+          {
+            label: 'Developer Tools',
+            shortcut: 'Ctrl+Shift+I',
+            global: true,
+            onSelect: () => windowCommand('toggleDevTools'),
+          },
+        ],
+      },
+      {
+        label: 'Window',
+        items: [
+          { label: 'Minimize', onSelect: () => windowCommand('minimize') },
+          { label: 'Maximize / Restore', onSelect: () => windowCommand('toggleMaximize') },
+          { separator: true },
+          { label: 'Close Window', onSelect: () => windowCommand('close') },
+        ],
+      },
+      {
+        label: 'Help',
+        items: [
+          { label: 'About TUKAKA Database Studio', onSelect: () => setAboutOpen(true) },
+        ],
+      },
+  ];
+
+  useMenuShortcuts(menus, Boolean(desktop));
 
   const saveDialogTab = workspace.tabs.find(
     (item): item is QueryTab =>
@@ -238,40 +444,55 @@ function App() {
   return (
     <ThemeContext.Provider value={theme}>
     <div className="h-screen flex flex-col bg-(--c-111318) text-(--c-d5d8df) overflow-hidden">
-      {/* Top bar */}
-      <header className="h-14 shrink-0 flex items-center justify-between px-4 border-b border-(--c-292d36) bg-(--c-171a21)">
-        <div className="flex items-center gap-3">
-          <img src="/favicon.svg" alt="" aria-hidden className="w-8 h-8 select-none" draggable={false} />
+      {/* Başlık çubuğu: masaüstünde pencere bu alandan sürüklenir. */}
+      <header
+        className={`h-10 shrink-0 flex items-center gap-1 border-b border-(--c-292d36) bg-(--c-171a21) ${
+          desktop ? 'app-drag' : ''
+        } ${isMac ? 'pl-[78px]' : 'pl-2.5'}`}
+      >
+        <img
+          src="/favicon.svg"
+          alt=""
+          aria-hidden
+          className="w-5 h-5 mr-1 select-none"
+          draggable={false}
+        />
 
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm tracking-wide text-white">
-              TUKAKA Database Studio
+        {showMenuBar ? (
+          <AppMenuBar menus={menus} />
+        ) : (
+          <span className="px-1 text-[12.5px] font-semibold tracking-wide text-white">
+            TUKAKA Database Studio
+          </span>
+        )}
+
+        <div className="h-4 w-px bg-(--c-343946) mx-1.5" />
+
+        <button
+          type="button"
+          onClick={() => setSidebarOpen((open) => !open)}
+          className="p-1.5 rounded-md hover:bg-(--c-292e39) text-gray-400"
+          title={`Toggle sidebar (${formatShortcut('Ctrl+B')})`}
+        >
+          {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+        </button>
+
+        {/* Ortadaki başlık: menüler varken uygulama adı burada görünür. */}
+        <div className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 pointer-events-none">
+          {showMenuBar && (
+            <span className="truncate text-xs text-gray-400">
+              {activeTab ? `${activeTabTitle} — ` : ''}TUKAKA Database Studio
             </span>
-            {import.meta.env.DEV && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-(--c-292e39) text-gray-400">
-                DEV
-              </span>
-            )}
-          </div>
-
-          <div className="h-5 w-px bg-(--c-343946) mx-2" />
-
-          <button
-            type="button"
-            onClick={() => setSidebarOpen((open) => !open)}
-            className="p-2 rounded-md hover:bg-(--c-292e39) text-gray-400"
-            title="Toggle sidebar"
-          >
-            {sidebarOpen ? (
-              <PanelLeftClose size={17} />
-            ) : (
-              <PanelLeftOpen size={17} />
-            )}
-          </button>
+          )}
+          {import.meta.env.DEV && (
+            <span className="shrink-0 text-[9.5px] px-1.5 py-0.5 rounded bg-(--c-292e39) text-gray-400">
+              DEV
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 text-xs text-gray-400 px-3">
+        <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2 text-[11px] text-gray-400 px-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             Workspace
           </div>
@@ -280,11 +501,14 @@ function App() {
             type="button"
             onClick={() => setSettingsOpen(true)}
             title="Settings"
-            className="p-2 rounded-md hover:bg-(--c-292e39) text-gray-400"
+            className="p-1.5 rounded-md hover:bg-(--c-292e39) text-gray-400"
           >
-            <Settings size={17} />
+            <Settings size={16} />
           </button>
         </div>
+
+        {/* Windows/Linux pencere düğmeleri (titleBarOverlay) için boşluk. */}
+        <div aria-hidden className={showMenuBar ? 'w-[146px] shrink-0' : 'w-2 shrink-0'} />
       </header>
 
       <div className="flex flex-1 min-h-0">
@@ -296,14 +520,24 @@ function App() {
                 Database Explorer
               </span>
 
-              <button
-                type="button"
-                className="p-1.5 rounded hover:bg-(--c-292e39) text-gray-400"
-                title="Add connection"
-                onClick={() => setConnectionDialog({ mode: 'create' })}
-              >
-                <Plus size={16} />
-              </button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  className="p-1.5 rounded hover:bg-(--c-292e39) text-gray-400"
+                  title="New collection"
+                  onClick={() => setCollectionDialog({ mode: 'create' })}
+                >
+                  <FolderPlus size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="p-1.5 rounded hover:bg-(--c-292e39) text-gray-400"
+                  title="Add connection"
+                  onClick={() => setConnectionDialog({ mode: 'create' })}
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
             </div>
 
             <div className="px-3 pb-3">
@@ -312,7 +546,7 @@ function App() {
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search connections..."
+                  placeholder="Search connections and collections..."
                   aria-label="Search connections"
                   className="w-full bg-transparent outline-none text-xs text-gray-200 placeholder:text-gray-600"
                 />
@@ -335,8 +569,23 @@ function App() {
                 </p>
               )}
 
-              <DatabaseExplorer
+              <ConnectionTree
+                collections={connections.collections}
                 connections={filteredConnections}
+                searching={needle.length > 0}
+                onAddConnection={(collectionId) =>
+                  setConnectionDialog({ mode: 'create', collectionId })
+                }
+                onEditCollection={(collection) =>
+                  setCollectionDialog({ mode: 'edit', collection })
+                }
+                onDeleteCollection={(collection) =>
+                  void handleCollectionDelete(collection)
+                }
+                onMoveConnection={(connectionId, collectionId) =>
+                  void handleMoveConnection(connectionId, collectionId)
+                }
+                onReorderCollections={(ids) => void connections.reorderCollections(ids)}
                 explorer={explorer}
                 testStatuses={connections.testStatuses}
                 activeConnectionId={activeConnectionId}
@@ -501,9 +750,55 @@ function App() {
               ? connectionDialog.connection
               : undefined
           }
+          collections={connections.collections}
+          defaultCollectionId={
+            connectionDialog.mode === 'create' ? (connectionDialog.collectionId ?? null) : null
+          }
           onClose={() => setConnectionDialog(null)}
           onSave={(config) => void handleConnectionSave(config)}
         />
+      )}
+
+      {collectionDialog && (
+        <CollectionDialog
+          mode={collectionDialog.mode}
+          initialName={
+            collectionDialog.mode === 'edit' ? collectionDialog.collection.name : ''
+          }
+          initialColor={
+            collectionDialog.mode === 'edit' ? collectionDialog.collection.color : null
+          }
+          onClose={() => setCollectionDialog(null)}
+          onSave={handleCollectionSave}
+        />
+      )}
+
+      {aboutOpen && (
+        <Modal
+          title="TUKAKA Database Studio"
+          subtitle={`Version ${__APP_VERSION__}`}
+          icon={<Info size={18} />}
+          onClose={() => setAboutOpen(false)}
+          footer={
+            <button
+              type="button"
+              onClick={() => setAboutOpen(false)}
+              className={secondaryButtonClass}
+            >
+              Close
+            </button>
+          }
+        >
+          <div className="space-y-1.5 p-5 text-xs text-(--c-9ca3af)">
+            <p>A desktop database studio for SQL databases.</p>
+            {desktop && (
+              <p className="text-(--c-737d8d)">
+                Platform: {desktop.platform}
+                {import.meta.env.DEV ? ' · development build' : ''}
+              </p>
+            )}
+          </div>
+        </Modal>
       )}
 
       {queriesPanel && (

@@ -56,12 +56,36 @@ export interface ConnectionProfile {
   created_at: string;
   updated_at: string;
   last_connected_at: string | null;
+  /** Bağlı olduğu koleksiyon; gruplanmamışsa null. */
+  collection_id: string | null;
 }
+
+/** Bağlantıları gruplayan klasör. */
+export interface ConnectionCollection {
+  id: string;
+  name: string;
+  /** Klasör simgesinin rengi (#rrggbb); varsayılan için null. */
+  color: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCollectionPayload {
+  name: string;
+  color?: string | null;
+}
+
+export type UpdateCollectionPayload = Partial<CreateCollectionPayload> & {
+  sortOrder?: number;
+};
 
 export interface CreateConnectionPayload {
   name: string;
   type: DatabaseType;
   database: string;
+  /** Koleksiyon; null gruplanmamış demektir. */
+  collectionId?: string | null;
   host?: string;
   port?: number;
   username?: string;

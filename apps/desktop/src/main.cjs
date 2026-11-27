@@ -4,6 +4,7 @@ const {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   net,
   protocol,
   shell,
@@ -329,6 +330,70 @@ ipcMain.handle('tukaka:select-file', async (event, kind) => {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
+// ---------------------------------------------------------------------------
+// Özel başlık çubuğu ve menü (arayüzden IPC ile)
+// ---------------------------------------------------------------------------
+
+/** Windows/Linux'ta pencere düğmeleri (küçült/büyüt/kapat) bu yükseklikte çizilir. */
+const TITLE_BAR_HEIGHT = 40;
+const usesCustomTitleBar = process.platform !== 'darwin';
+
+const TITLE_BAR_THEMES = {
+  dark: { color: '#171a21', symbolColor: '#9ca3af' },
+  light: { color: '#dfe1e7', symbolColor: '#4b5563' },
+};
+
+const ZOOM_STEP = 0.5;
+
+/** Arayüzdeki menünün tetikleyebileceği pencere komutları. */
+const WINDOW_COMMANDS = {
+  undo: (contents) => contents.undo(),
+  redo: (contents) => contents.redo(),
+  cut: (contents) => contents.cut(),
+  copy: (contents) => contents.copy(),
+  paste: (contents) => contents.paste(),
+  selectAll: (contents) => contents.selectAll(),
+  reload: (contents) => contents.reload(),
+  toggleDevTools: (contents) => contents.toggleDevTools(),
+  zoomIn: (contents) => contents.setZoomLevel(contents.getZoomLevel() + ZOOM_STEP),
+  zoomOut: (contents) => contents.setZoomLevel(contents.getZoomLevel() - ZOOM_STEP),
+  resetZoom: (contents) => contents.setZoomLevel(0),
+  toggleFullScreen: (_contents, window) => window.setFullScreen(!window.isFullScreen()),
+  minimize: (_contents, window) => window.minimize(),
+  toggleMaximize: (_contents, window) =>
+    window.isMaximized() ? window.unmaximize() : window.maximize(),
+  close: (_contents, window) => window.close(),
+  quit: () => app.quit(),
+};
+
+function senderWindow(event) {
+  // Yalnızca uygulamanın kendi sayfası pencereyi yönetebilir.
+  if (!event.senderFrame || !isAllowedNavigation(event.senderFrame.url)) return null;
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+ipcMain.handle('tukaka:window-command', (event, command) => {
+  const window = senderWindow(event);
+  const run = WINDOW_COMMANDS[command];
+
+  if (!window || !run) return;
+
+  run(event.sender, window);
+});
+
+ipcMain.on('tukaka:set-theme', (event, theme) => {
+  const window = senderWindow(event);
+  const colors = TITLE_BAR_THEMES[theme];
+
+  if (!window || !colors) return;
+
+  window.setBackgroundColor(theme === 'light' ? '#e8e9ed' : '#111318');
+
+  if (usesCustomTitleBar) {
+    window.setTitleBarOverlay({ ...colors, height: TITLE_BAR_HEIGHT });
+  }
+});
+
 function isAllowedNavigation(url) {
   return isProduction ? url.startsWith(`${APP_ORIGIN}/`) : url.startsWith(DEV_WEB_URL);
 }
@@ -350,6 +415,12 @@ function createWindow() {
     backgroundColor: '#111318',
     title: 'TUKAKA Database Studio',
     show: false,
+    // Başlık çubuğu arayüzde çizilir (menü + uygulama teması). Windows/Linux'ta
+    // pencere düğmeleri sistemin, renkleri temadan gelir; macOS'ta trafik ışıkları kalır.
+    titleBarStyle: 'hidden',
+    ...(usesCustomTitleBar
+      ? { titleBarOverlay: { ...TITLE_BAR_THEMES.dark, height: TITLE_BAR_HEIGHT } }
+      : { trafficLightPosition: { x: 14, y: 13 } }),
 
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -410,6 +481,12 @@ if (!app.requestSingleInstanceLock()) {
     try {
       if (isProduction) {
         registerAppProtocol();
+      }
+
+      // Windows/Linux'ta menü arayüzdeki başlık çubuğunda; yerel menü çubuğu kaldırılır.
+      // macOS'ta varsayılan (sistem) menü kalır.
+      if (usesCustomTitleBar) {
+        Menu.setApplicationMenu(null);
       }
 
       if (devIcon && process.platform === 'darwin') {

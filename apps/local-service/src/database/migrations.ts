@@ -234,4 +234,25 @@ export const migrations: Migration[] = [
         ON connection_profiles(type);
     `,
   },
+  {
+    version: 7,
+    description: 'Connection collections',
+    up: `
+      CREATE TABLE IF NOT EXISTS connection_collections (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        color TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      ALTER TABLE connection_profiles
+        ADD COLUMN collection_id TEXT
+          REFERENCES connection_collections(id) ON DELETE SET NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_connection_profiles_collection
+        ON connection_profiles(collection_id);
+    `,
+  },
 ];

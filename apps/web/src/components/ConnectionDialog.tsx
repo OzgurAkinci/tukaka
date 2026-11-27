@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight, Database, FilePlus2, FolderOpen, X } from 'lucide-react';
 
 import type {
+  ConnectionCollection,
   ConnectionOptions,
   DatabaseType,
   SshTunnelConfig,
@@ -39,12 +40,19 @@ export interface ConnectionConfig {
   ssh?: SshTunnelConfig;
   /** SSH şifresi ya da özel anahtar parolası (boşsa değişmez). */
   sshSecret?: string;
+  /** Koleksiyon; null gruplanmamış demektir. */
+  collectionId?: string | null;
 }
 
 interface ConnectionDialogProps {
   onClose: () => void;
   onSave: (config: ConnectionConfig) => void;
+  /** Seçilebilecek koleksiyonlar. */
+  collections?: ConnectionCollection[];
+  /** Yeni bağlantının varsayılan koleksiyonu. */
+  defaultCollectionId?: string | null;
   initialConfig?: {
+    collection_id?: string | null;
     name: string;
     type: DatabaseType;
     host?: string | null;
@@ -74,6 +82,8 @@ const sideButtonClass =
 export default function ConnectionDialog({
   onClose,
   onSave,
+  collections = [],
+  defaultCollectionId = null,
   initialConfig,
 }: ConnectionDialogProps) {
   const isEditMode = Boolean(initialConfig);
@@ -91,6 +101,9 @@ export default function ConnectionDialog({
     initialConfig?.username ?? databases[initialType].defaultUsername,
   );
   const [password, setPassword] = useState('');
+  const [collectionId, setCollectionId] = useState<string | null>(
+    initialConfig ? (initialConfig.collection_id ?? null) : defaultCollectionId,
+  );
   const [sslMode, setSslMode] = useState<SslMode>(toSslMode(initialConfig?.ssl_mode));
 
   const [sshOpen, setSshOpen] = useState(Boolean(initialSsh?.enabled));
@@ -155,6 +168,7 @@ export default function ConnectionDialog({
       name,
       type,
       database,
+      collectionId,
       ...(info.server && {
         host,
         port: Number(port),
@@ -238,6 +252,25 @@ export default function ConnectionDialog({
                 className={inputClass}
               />
             </div>
+
+            {collections.length > 0 && (
+              <div>
+                <label className={labelClass} htmlFor="connection-collection">Collection</label>
+                <select
+                  id="connection-collection"
+                  value={collectionId ?? ''}
+                  onChange={(event) => setCollectionId(event.target.value || null)}
+                  className={inputClass}
+                >
+                  <option value="">No collection</option>
+                  {collections.map((collection) => (
+                    <option key={collection.id} value={collection.id}>
+                      {collection.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {!info.server ? (
               <div>

@@ -17,6 +17,7 @@ export function makeProfile(
     created_at: '',
     updated_at: '',
     last_connected_at: null,
+    collection_id: null,
     ...overrides,
   };
 }
