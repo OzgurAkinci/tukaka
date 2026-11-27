@@ -10,7 +10,7 @@ const {
   shell,
   utilityProcess,
 } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -149,18 +149,49 @@ function startBundledService() {
  * Geliştirme: servis `nest start --watch` ile sabit portta çalışır; böylece
  * tarayıcıdan da aynı servise erişilebilir.
  */
+async function isServiceListening(url) {
+  try {
+    const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function startDevService() {
   console.log('Starting TUKAKA Local Service (development)...');
+
+  const url = `http://127.0.0.1:${DEV_SERVICE_PORT}`;
+
+  // Önceki bir oturumdan kalan servis kendini birkaç saniye içinde kapatır
+  // (TUKAKA_OWNER_PID); kapanmasını bekle. Kapanmazsa port başka bir süreçte.
+  const portDeadline = Date.now() + 8000;
+
+  while (await isServiceListening(url)) {
+    if (Date.now() > portDeadline) {
+      throw new Error(
+        `Port ${DEV_SERVICE_PORT} is already used by another TUKAKA Local Service. ` +
+          'Close the other instance (or end the leftover "node" process) and try again.',
+      );
+    }
+
+    console.log(`Waiting for the previous Local Service on port ${DEV_SERVICE_PORT} to stop...`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
 
   serviceProcess = spawn('pnpm', ['--filter', 'local-service', 'start:dev'], {
     cwd: projectRoot,
     shell: process.platform === 'win32',
+    // Unix'te ayrı süreç grubu: kapanışta tüm grup (pnpm → nest → node) durdurulur.
+    detached: process.platform !== 'win32',
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       LOCAL_SERVICE_PORT: String(DEV_SERVICE_PORT),
       TUKAKA_SESSION_TOKEN: sessionToken,
+      // Servis bu süreç kapanınca kendini durdurur (Electron zorla kapatılsa bile).
+      TUKAKA_OWNER_PID: String(process.pid),
     },
   });
 
@@ -172,7 +203,6 @@ async function startDevService() {
     handleServiceExit(code);
   });
 
-  const url = `http://127.0.0.1:${DEV_SERVICE_PORT}`;
   const deadline = Date.now() + SERVICE_START_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
@@ -205,9 +235,31 @@ function handleServiceExit(code) {
 function stopLocalService() {
   if (!serviceProcess) return;
 
-  console.log('Stopping TUKAKA Local Service...');
-  serviceProcess.kill();
+  const child = serviceProcess;
   serviceProcess = null;
+
+  console.log('Stopping TUKAKA Local Service...');
+
+  // Geliştirmede servis bir süreç zinciridir (pnpm → nest --watch → node);
+  // yalnızca ilk süreci öldürmek gerçek servisi (ve 4317 portunu) açık bırakır.
+  // Bu yüzden tüm ağaç senkron olarak durdurulur: çıkış anında da çalışır.
+  if (!isProduction && child.pid) {
+    try {
+      if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+          windowsHide: true,
+          stdio: 'ignore',
+        });
+      } else {
+        process.kill(-child.pid, 'SIGTERM');
+      }
+      return;
+    } catch {
+      // Süreç zaten kapanmış olabilir; aşağıdaki kill ile devam et.
+    }
+  }
+
+  child.kill();
 }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +570,21 @@ app.on('before-quit', () => {
   quitting = true;
   stopLocalService();
 });
+
+// Terminalde Ctrl+C (ya da concurrently -k) Electron'u before-quit olmadan
+// kapatabilir; servis ağacı yine de durdurulur.
+process.on('exit', () => {
+  quitting = true;
+  stopLocalService();
+});
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    quitting = true;
+    stopLocalService();
+    app.exit(0);
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

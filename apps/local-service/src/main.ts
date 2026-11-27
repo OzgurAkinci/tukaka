@@ -68,6 +68,38 @@ async function bootstrap() {
 
   // Electron ana sürecine hazır olduğunu ve gerçek portu bildir.
   parentPort?.postMessage({ type: 'ready', port });
+
+  watchOwnerProcess(() => void app.close().finally(() => process.exit(0)));
+}
+
+const OWNER_CHECK_INTERVAL_MS = 2000;
+
+/**
+ * Geliştirmede servisi Electron başlatır (pnpm → nest --watch → node zinciri).
+ * Electron beklenmedik şekilde kapanırsa (ör. terminalde Ctrl+C) bu zincir
+ * sahipsiz kalıp portu tutmaya devam edebilir; bu yüzden servis, kendisini
+ * başlatan sürecin hâlâ yaşadığını düzenli olarak kontrol eder.
+ */
+function watchOwnerProcess(shutdown: () => void) {
+  const ownerPid = Number(process.env.TUKAKA_OWNER_PID);
+
+  if (!Number.isInteger(ownerPid) || ownerPid <= 0) return;
+
+  const timer = setInterval(() => {
+    try {
+      // Sinyal 0 yalnızca sürecin var olup olmadığını sınar.
+      process.kill(ownerPid, 0);
+    } catch (error) {
+      // EPERM: süreç var ama sinyal izni yok, yani hâlâ yaşıyor.
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') return;
+
+      clearInterval(timer);
+      console.log(`Owner process ${ownerPid} is gone; stopping TUKAKA Local Service.`);
+      shutdown();
+    }
+  }, OWNER_CHECK_INTERVAL_MS);
+
+  timer.unref();
 }
 
 bootstrap().catch((error: unknown) => {
